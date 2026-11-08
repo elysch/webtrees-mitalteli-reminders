@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Fisharebest\Webtrees\Module;
+namespace Mitalteli\Webtrees\Util\Reminders;
 
 use mysqli;
 use RuntimeException;
@@ -23,9 +23,10 @@ use Throwable;
  */
 class ReminderFollows
 {
-    private const TABLE = 'wt_reminder_follows';
+    private const TABLE = 'mitalteli_reminders_follows';
 
     private mysqli $db;
+    private string $prefix;
 
     public function __construct()
     {
@@ -40,6 +41,8 @@ class ReminderFollows
         if ($config === false) {
             throw new RuntimeException('Could not parse config.ini.php');
         }
+
+        $this->prefix = (string) ($config['tblpfx'] ?? '');
 
         $this->db = new mysqli(
             (string) ($config['dbhost'] ?? 'localhost'),
@@ -66,7 +69,7 @@ class ReminderFollows
     {
         try {
             $this->db->query(
-                'CREATE TABLE IF NOT EXISTS `' . self::TABLE . '` ('
+                'CREATE TABLE IF NOT EXISTS `' . $this->prefix . self::TABLE . '` ('
                 . '`id` INT(11) NOT NULL AUTO_INCREMENT,'
                 . '`gedid` VARCHAR(20) NOT NULL,'
                 . '`target` VARCHAR(20) NOT NULL,'
@@ -89,7 +92,7 @@ class ReminderFollows
     public function targets(string $gedid): array
     {
         $stmt = $this->db->prepare(
-            'SELECT target FROM `' . self::TABLE . '` WHERE gedid = ? ORDER BY created ASC'
+            'SELECT target FROM `' . $this->prefix . self::TABLE . '` WHERE gedid = ? ORDER BY created ASC'
         );
         $stmt->bind_param('s', $gedid);
         $stmt->execute();
@@ -106,7 +109,7 @@ class ReminderFollows
     public function follow(string $gedid, string $target): void
     {
         $stmt = $this->db->prepare(
-            'INSERT IGNORE INTO `' . self::TABLE . '` (gedid, target) VALUES (?, ?)'
+            'INSERT IGNORE INTO `' . $this->prefix . self::TABLE . '` (gedid, target) VALUES (?, ?)'
         );
         $stmt->bind_param('ss', $gedid, $target);
         $stmt->execute();
@@ -116,7 +119,7 @@ class ReminderFollows
     public function unfollow(string $gedid, string $target): void
     {
         $stmt = $this->db->prepare(
-            'DELETE FROM `' . self::TABLE . '` WHERE gedid = ? AND target = ?'
+            'DELETE FROM `' . $this->prefix . self::TABLE . '` WHERE gedid = ? AND target = ?'
         );
         $stmt->bind_param('ss', $gedid, $target);
         $stmt->execute();

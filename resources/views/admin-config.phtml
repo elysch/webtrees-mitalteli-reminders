@@ -1,0 +1,173 @@
+<?php
+
+declare(strict_types=1);
+
+use Fisharebest\Webtrees\Http\RequestHandlers\ControlPanel;
+use Fisharebest\Webtrees\Http\RequestHandlers\ModulesAllPage;
+use Fisharebest\Webtrees\I18N;
+
+/**
+ * @var string               $title
+ * @var string               $action_url
+ * @var string               $cron_url
+ * @var bool                 $has_token
+ * @var array<int,string>    $users
+ * @var int                  $run_as_user_id
+ * @var bool                 $run_as_is_admin
+ * @var array<string,string> $trees
+ * @var string               $tree
+ * @var string               $email_from
+ * @var string               $email_from_name
+ * @var string               $email_subject_prefix
+ * @var string               $allow_recipients
+ * @var string               $sidebar_mode
+ * @var array<int,string>    $sidebar_modes
+ */
+
+$mode_labels = [
+    'full'      => [I18N::translate('Full'), I18N::translate('Current behaviour: relationship, follow toggle and details.')],
+    'compact'   => [I18N::translate('Compact'), I18N::translate('One line: relationship badge plus a small follow button.')],
+    'collapsed' => [I18N::translate('Collapsed'), I18N::translate('Full panel, folded by default; click the summary line to expand.')],
+    'hidden'    => [I18N::translate('Hidden'), I18N::translate('No panel. This also removes the “remind me” toggle from individual pages; follows remain available on each member’s Reminders page.')],
+];
+
+?>
+
+<?= view('components/breadcrumbs', ['links' => [route(ControlPanel::class) => I18N::translate('Control panel'), route(ModulesAllPage::class) => I18N::translate('Modules'), $title]]) ?>
+
+<h1><?= e($title) ?></h1>
+
+<form method="post" action="<?= e($action_url) ?>" autocomplete="off">
+    <?= csrf_field() ?>
+
+    <h2 class="h4"><?= I18N::translate('Daily cron') ?></h2>
+
+    <div class="row mb-3">
+        <label class="col-sm-3 col-form-label" for="cron_token"><?= I18N::translate('Cron token') ?></label>
+        <div class="col-sm-9">
+            <input type="password" class="form-control" id="cron_token" name="cron_token" value=""
+                   autocomplete="new-password" spellcheck="false" maxlength="128"
+                   aria-describedby="cron_token_help">
+            <div class="form-text" id="cron_token_help">
+                <?php if ($has_token) : ?>
+                    <?= I18N::translate('A token is set. Leave this field empty to keep it.') ?>
+                <?php else : ?>
+                    <?= I18N::translate('No token is set: the cron route answers 403 until one exists. A random one is generated when you save.') ?>
+                <?php endif ?>
+                <?= I18N::translate('Or paste your own token (32–128 characters: letters, digits, “-”, “_”).') ?>
+            </div>
+            <?php if ($has_token) : ?>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="regenerate_token" name="regenerate_token" value="1">
+                    <label class="form-check-label" for="regenerate_token">
+                        <?= I18N::translate('Generate a new random token (invalidates the current one)') ?>
+                    </label>
+                </div>
+            <?php endif ?>
+        </div>
+    </div>
+
+    <?php if ($cron_url !== '') : ?>
+        <div class="row mb-3">
+            <label class="col-sm-3 col-form-label" for="cron_url"><?= I18N::translate('Cron URL') ?></label>
+            <div class="col-sm-9">
+                <input type="text" class="form-control" id="cron_url" readonly
+                       value="<?= e($cron_url . (str_contains($cron_url, '?') ? '&' : '?') . 'token=TOKEN&send=1') ?>">
+                <div class="form-text"><?= I18N::translate('Replace TOKEN with the cron token. Without send=1 it is a dry run: previews are built but no mail is sent.') ?></div>
+            </div>
+        </div>
+    <?php endif ?>
+
+    <div class="row mb-3">
+        <label class="col-sm-3 col-form-label" for="run_as_user_id"><?= I18N::translate('Run the cron as') ?></label>
+        <div class="col-sm-9">
+            <select class="form-select" id="run_as_user_id" name="run_as_user_id" aria-describedby="run_as_help">
+                <option value=""><?= I18N::translate('(none — guest)') ?></option>
+                <?php foreach ($users as $id => $label) : ?>
+                    <option value="<?= e((string) $id) ?>" <?= $id === $run_as_user_id ? 'selected' : '' ?>>
+                        <?= e($label) ?><?= $id === $run_as_user_id && $run_as_is_admin ? ' ' . e(I18N::translate('(administrator — not recommended)')) : '' ?>
+                    </option>
+                <?php endforeach ?>
+            </select>
+            <div class="form-text" id="run_as_help">
+                <?= I18N::translate('Use a dedicated account with the lowest role that can read the relationships. Every digest is built with this account’s privacy level.') ?>
+            </div>
+            <?php if ($run_as_is_admin) : ?>
+                <div class="alert alert-warning mt-2 mb-0" role="alert">
+                    <?= I18N::translate('The selected account is an administrator. Digests are built with administrator visibility, which can disclose private data to subscribers. Choose a regular member.') ?>
+                </div>
+            <?php endif ?>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <label class="col-sm-3 col-form-label" for="tree"><?= I18N::translate('Tree') ?></label>
+        <div class="col-sm-9">
+            <select class="form-select" id="tree" name="tree">
+                <option value=""><?= I18N::translate('(first tree)') ?></option>
+                <?php foreach ($trees as $name => $tree_title) : ?>
+                    <option value="<?= e($name) ?>" <?= $name === $tree ? 'selected' : '' ?>><?= e($tree_title) ?></option>
+                <?php endforeach ?>
+            </select>
+        </div>
+    </div>
+
+    <h2 class="h4"><?= I18N::translate('Email') ?></h2>
+
+    <div class="row mb-3">
+        <label class="col-sm-3 col-form-label" for="email_from"><?= I18N::translate('From address') ?></label>
+        <div class="col-sm-9">
+            <input type="email" class="form-control" id="email_from" name="email_from" required maxlength="254"
+                   value="<?= e($email_from) ?>" placeholder="reminders@example.org">
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <label class="col-sm-3 col-form-label" for="email_from_name"><?= I18N::translate('From name') ?></label>
+        <div class="col-sm-9">
+            <input type="text" class="form-control" id="email_from_name" name="email_from_name" maxlength="100"
+                   value="<?= e($email_from_name) ?>">
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <label class="col-sm-3 col-form-label" for="email_subject_prefix"><?= I18N::translate('Subject prefix') ?></label>
+        <div class="col-sm-9">
+            <input type="text" class="form-control" id="email_subject_prefix" name="email_subject_prefix" maxlength="60"
+                   value="<?= e($email_subject_prefix) ?>">
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <label class="col-sm-3 col-form-label" for="allow_recipients"><?= I18N::translate('Test recipients') ?></label>
+        <div class="col-sm-9">
+            <textarea class="form-control" id="allow_recipients" name="allow_recipients" rows="3" spellcheck="false"
+                      aria-describedby="allow_help"><?= e($allow_recipients) ?></textarea>
+            <div class="form-text" id="allow_help"><?= I18N::translate('One address per line (or comma-separated). When not empty, ONLY these addresses receive mail.') ?></div>
+            <?php if (trim($allow_recipients) !== '') : ?>
+                <div class="alert alert-info mt-2 mb-0" role="status"><?= I18N::translate('Test mode is active: only the addresses above receive mail.') ?></div>
+            <?php endif ?>
+        </div>
+    </div>
+
+    <h2 class="h4"><?= I18N::translate('Individual page panel') ?></h2>
+
+    <fieldset class="row mb-4">
+        <legend class="col-form-label col-sm-3 pt-0"><?= I18N::translate('Display mode') ?></legend>
+        <div class="col-sm-9">
+            <?php foreach ($sidebar_modes as $mode) : ?>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="radio" name="sidebar_mode" id="sidebar_mode_<?= e($mode) ?>"
+                           value="<?= e($mode) ?>" <?= $mode === $sidebar_mode ? 'checked' : '' ?>>
+                    <label class="form-check-label" for="sidebar_mode_<?= e($mode) ?>">
+                        <strong><?= e($mode_labels[$mode][0]) ?></strong><br>
+                        <span class="text-muted"><?= e($mode_labels[$mode][1]) ?></span>
+                    </label>
+                </div>
+            <?php endforeach ?>
+        </div>
+    </fieldset>
+
+    <button type="submit" class="btn btn-primary"><?= I18N::translate('Save') ?></button>
+    <a class="btn btn-secondary" href="<?= e(route(ModulesAllPage::class)) ?>"><?= I18N::translate('Cancel') ?></a>
+</form>

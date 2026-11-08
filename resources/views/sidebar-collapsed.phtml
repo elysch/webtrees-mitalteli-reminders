@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Collapsed-by-default variant of the individual-page panel (display mode
+ * "collapsed"): the regular panel, folded inside a native <details> element.
+ *
+ * @var string $title   Module title (fallback summary)
+ * @var string $summary One-line summary, e.g. the relationship label
+ * @var string $content The already-rendered, trusted panel HTML
+ */
+
+?>
+
+<details class="wt-reminders-collapsed">
+    <summary class="small text-muted" style="cursor: pointer;">
+        <?= e($summary !== '' ? $summary : $title) ?>
+    </summary>
+    <div class="mt-2">
+        <?= $content ?>
+    </div>
+</details>

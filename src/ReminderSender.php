@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Fisharebest\Webtrees\Module;
+namespace Mitalteli\Webtrees\Util\Reminders;
 
 use Fisharebest\Webtrees\Contracts\UserInterface;
 

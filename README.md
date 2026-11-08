@@ -4,6 +4,8 @@ A custom [webtrees](https://webtrees.net) 2.x module that emails family members 
 personalised digest of **upcoming birthdays** among their relatives, and adds a
 relationship-aware panel to every individual's page.
 
+This is a fork from https://github.com/jbh4x82/wt_reminders
+
 ## What it does
 
 - **Daily birthday digest by email.** A token-guarded cron route builds, for
@@ -33,14 +35,14 @@ Italian, Spanish).
 ## Install
 
 1. Copy this folder into your webtrees `modules_v4/` directory (e.g.
-   `modules_v4/reminders/`).
+   `modules_v4/mitalteli-reminders/`).
 2. Enable the module in the webtrees control panel.
 3. The module self-creates its two tables on first use:
 
    | Table | Purpose |
    |---|---|
-   | `wt_reminder_subscriptions` | one row per subscriber: `gedid` (XREF), `days_ahead`, `max_distance`, `include_deceased` |
-   | `wt_reminder_follows` | followed birthdays: `(gedid, target)` |
+   | `mitalteli_reminders_subscriptions` | one row per subscriber: `gedid` (XREF), `days_ahead`, `max_distance`, `include_deceased` |
+   | `mitalteli_reminders_follows` | followed birthdays: `(gedid, target)` |
 
 ## Module preferences
 

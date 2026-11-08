@@ -2,15 +2,24 @@
 
 declare(strict_types=1);
 
-namespace Fisharebest\Webtrees\Module;
+namespace Mitalteli\Webtrees\Util\Reminders;
 
 use Fig\Http\Message\RequestMethodInterface;
 use Fig\Http\Message\StatusCodeInterface;
+use Fisharebest\Webtrees\Module\AbstractModule;
+use Fisharebest\Webtrees\Module\ModuleCustomTrait;
+use Fisharebest\Webtrees\Module\ModuleMenuTrait;
+use Fisharebest\Webtrees\Module\ModuleSidebarTrait;
+use Fisharebest\Webtrees\Http\ViewResponseTrait;
+use Fisharebest\Webtrees\Module\ModuleConfigTrait;
+use Fisharebest\Webtrees\Module\ModuleCustomInterface;
+use Fisharebest\Webtrees\Module\ModuleMenuInterface;
+use Fisharebest\Webtrees\Module\ModuleSidebarInterface;
+use Fisharebest\Webtrees\Module\ModuleConfigInterface;
 use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\Contracts\UserInterface;
 use Fisharebest\Webtrees\DB;
 use Fisharebest\Webtrees\Http\RequestHandlers\LoginPage;
-use Fisharebest\Webtrees\Http\ViewResponseTrait;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Menu;
@@ -34,6 +43,10 @@ require_once __DIR__ . '/ReminderFollows.php';
 require_once __DIR__ . '/ReminderRelationships.php';
 require_once __DIR__ . '/ReminderService.php';
 require_once __DIR__ . '/ReminderSender.php';
+require_once __DIR__ . '/ReminderSettings.php';
+
+use Mitalteli\Webtrees\Util\Reminders\ReminderSettings;
+use Mitalteli\Webtrees\Util\Reminders\ReminderRelationships;
 
 /**
  * A birthday-reminder module for webtrees.
@@ -42,12 +55,14 @@ require_once __DIR__ . '/ReminderSender.php';
  * operation (DB, relationship BFS, mail) runs inside a per-request handler, so
  * a failure can only break this module's own page — never the whole site.
  */
-class RemindersModule extends AbstractModule implements ModuleCustomInterface, ModuleMenuInterface, ModuleSidebarInterface, RequestHandlerInterface
+class RemindersModule extends AbstractModule implements ModuleCustomInterface, ModuleMenuInterface, ModuleSidebarInterface, RequestHandlerInterface, ModuleConfigInterface
 {
     use ModuleCustomTrait;
     use ModuleMenuTrait;
     use ModuleSidebarTrait;
     use ViewResponseTrait;
+    use ModuleConfigTrait;
+    use ReminderSettings;
 
     protected const ROUTE_URL  = '/tree/{tree}/reminders';
     protected const ROUTE_CRON = '/reminders-cron';
@@ -78,27 +93,27 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
 
     public function description(): string
     {
-        return I18N::translate('Birthday reminders for relatives in the family tree.');
+        return I18N::translate('Birthday reminders for relatives in the family tree based on the work made by jbh4x82 at https://github.com/jbh4x82/wt_reminders.');
     }
 
     public function resourcesFolder(): string
     {
-        return __DIR__ . '/resources/';
+        return __DIR__ . '/../resources/';
     }
 
     public function customModuleAuthorName(): string
     {
-        return 'jbh4x82';
+        return 'elysch';
     }
 
     public function customModuleVersion(): string
     {
-        return '1.3.3';
+        return '1.0.0';
     }
 
     public function customModuleSupportUrl(): string
     {
-        return 'https://github.com/jbh4x82/wt_reminders';
+        return 'https://github.com/elysch/webtrees-mitalteli-reminders/issues';
     }
 
     /**
@@ -361,7 +376,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
             ],
         ];
 
-        return $catalogue[$primary] ?? [];
+        return array_merge($catalogue[$primary] ?? [], $this->reminderAdminTranslations($primary));
     }
 
     /**
@@ -445,6 +460,10 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
             return false;
         }
 
+        if ($this->sidebarMode() === 'hidden') {
+            return false;
+        }        
+
         return $individual->tree()->getUserPreference(Auth::user(), UserInterface::PREF_TREE_ACCOUNT_XREF) !== '';
     }
 
@@ -519,7 +538,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
                 $wiki   = $german ? (string) ($fam['wiki_de'] ?: $fam['wiki_en']) : (string) ($fam['wiki_en'] ?: $fam['wiki_de']);
             }
 
-            return view($this->name() . '::sidebar', [
+            return $this->renderReminderSidebar([
                 'individual'       => $individual,
                 'is_self'          => $is_self,
                 'is_following'     => $is_following,

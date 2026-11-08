@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Fisharebest\Webtrees\Module;
+namespace Mitalteli\Webtrees\Util\Reminders;
 
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
@@ -10,6 +10,7 @@ use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\ModuleService;
 use Fisharebest\Webtrees\Services\RelationshipService;
 use Fisharebest\Webtrees\Services\TreeService;
+use Fisharebest\Webtrees\Module\RelationshipsChartModule;
 use Fisharebest\Webtrees\Tree;
 use ReflectionMethod;
 use SplDoublyLinkedList;

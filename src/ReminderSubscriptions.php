@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Fisharebest\Webtrees\Module;
+namespace Mitalteli\Webtrees\Util\Reminders;
 
 use mysqli;
 use RuntimeException;
@@ -11,7 +11,7 @@ use Throwable;
 /**
  * Data layer for the birthday-reminder subscriptions.
  *
- * The subscription table (wt_reminder_subscriptions) is the module's own table,
+ * The subscription table (mitalteli_reminders_subscriptions) is the module's own table,
  * not a webtrees core table, so we use a raw mysqli connection (reading
  * webtrees' own data/config.ini.php) rather than the prefixed query builder. It
  * self-creates on first use; all queries use prepared statements.
@@ -23,7 +23,7 @@ use Throwable;
  */
 class ReminderSubscriptions
 {
-    private const TABLE = 'wt_reminder_subscriptions';
+    private const TABLE = 'mitalteli_reminders_subscriptions';
 
     private mysqli $db;
     private string $prefix;
@@ -42,7 +42,7 @@ class ReminderSubscriptions
             throw new RuntimeException('Could not parse config.ini.php');
         }
 
-        $this->prefix = (string) ($config['tblpfx'] ?? 'wt_');
+        $this->prefix = (string) ($config['tblpfx'] ?? '');
 
         $this->db = new mysqli(
             (string) ($config['dbhost'] ?? 'localhost'),
@@ -70,7 +70,7 @@ class ReminderSubscriptions
     {
         try {
             $this->db->query(
-                'CREATE TABLE IF NOT EXISTS `' . self::TABLE . '` ('
+                'CREATE TABLE IF NOT EXISTS `' . $this->prefix . self::TABLE . '` ('
                 . '`id` INT(11) NOT NULL AUTO_INCREMENT,'
                 . '`gedid` VARCHAR(20) NOT NULL,'
                 . '`days_ahead` INT(11) NOT NULL DEFAULT 1,'
@@ -98,7 +98,7 @@ class ReminderSubscriptions
 
         return 'SELECT u.user_id, u.user_name, u.real_name AS namekomplett, u.email,'
             . ' r.gedid, r.max_distance, r.days_ahead, r.include_deceased'
-            . ' FROM `' . self::TABLE . '` r'
+            . ' FROM `' . $this->prefix . self::TABLE . '` r'
             . ' JOIN ' . $user_pref . ' gs ON gs.setting_name = \'gedcomid\' AND gs.setting_value = r.gedid'
             . ' JOIN ' . $user . ' u ON u.user_id = gs.user_id'
             . ' ' . $tail;
@@ -145,7 +145,7 @@ class ReminderSubscriptions
      */
     public function subscribe(string $xref): void
     {
-        $stmt = $this->db->prepare('INSERT IGNORE INTO `' . self::TABLE . '` (gedid) VALUES (?)');
+        $stmt = $this->db->prepare('INSERT IGNORE INTO `' . $this->prefix . self::TABLE . '` (gedid) VALUES (?)');
         $stmt->bind_param('s', $xref);
         $stmt->execute();
         $stmt->close();
@@ -153,7 +153,7 @@ class ReminderSubscriptions
 
     public function unsubscribe(string $xref): void
     {
-        $stmt = $this->db->prepare('DELETE FROM `' . self::TABLE . '` WHERE gedid = ?');
+        $stmt = $this->db->prepare('DELETE FROM `' . $this->prefix . self::TABLE . '` WHERE gedid = ?');
         $stmt->bind_param('s', $xref);
         $stmt->execute();
         $stmt->close();
@@ -163,7 +163,7 @@ class ReminderSubscriptions
     {
         $deceased = $include_deceased ? 1 : 0;
         $stmt     = $this->db->prepare(
-            'UPDATE `' . self::TABLE . '` SET days_ahead = ?, max_distance = ?, include_deceased = ? WHERE gedid = ?'
+            'UPDATE `' . $this->prefix . self::TABLE . '` SET days_ahead = ?, max_distance = ?, include_deceased = ? WHERE gedid = ?'
         );
         $stmt->bind_param('iiis', $days_ahead, $max_distance, $deceased, $xref);
         $stmt->execute();
