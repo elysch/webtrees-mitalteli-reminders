@@ -46,12 +46,13 @@ Italian, Spanish).
 
 ## Module preferences
 
-These are plain module settings (stored via webtrees' module preferences):
+Edit them under **Control panel → Modules → Reminders** (the wrench icon). They are plain module settings, stored via webtrees' module preferences:
 
 | Setting | Purpose |
 |---|---|
 | `cron_token` | **required** secret for the cron route — no token ⇒ the route returns 403 |
-| `run_as_user_id` | the user id the cron runs as (a tree member/admin), so webtrees privacy lets the engine read relationships on a private tree |
+| `sidebar_mode` | how the panel on individual pages looks: `full` (default), `compact`, `collapsed` or `hidden` |
+| `sidebar_user_choice` | `1` (default) lets each member override `sidebar_mode` on their own Reminders page |
 | `tree` | tree name for the cron route — **leave empty to use the first/only tree** |
 | `email_from` | the From address for digest emails (e.g. `reminders@example.org`) |
 | `email_from_name` | the From display name (e.g. `Birthday Reminders`) |
@@ -60,25 +61,43 @@ These are plain module settings (stored via webtrees' module preferences):
 
 ## Cron
 
-Call the cron route once a day from your scheduler:
+The cron endpoint is **POST-only**: the token never appears in a URL (so not in
+access logs, browser history or `Referer`). Each subscriber is processed in its
+own request, **with that subscriber's own privileges** (their account is
+logged in for the duration of that request), so a digest never contains more
+than that member can see on the site. Only accounts that are approved and
+e-mail-verified are ever used, and the account must be linked to the
+subscriber's XREF in the configured tree.
+
+`GET /reminders-cron` only returns the session's CSRF token (webtrees requires
+one on every POST). `POST /reminders-cron` takes these form fields:
+
+| Field | Meaning |
+|---|---|
+| `_csrf` | the token returned by the GET (same session cookie) |
+| `token` | your `cron_token` |
+| `action` | `list` (subscriber XREFs), `run` (one subscriber) or `preview` (their digest as HTML, no mail) |
+| `xref` | the subscriber's XREF (`run`, `preview`) |
+| `send` | `1` to really send; anything else is a **dry run** (`run`) |
+| `lang` | language tag to render the preview in (`preview`) |
+
+`bin/wt-reminders-cron.php` does all of this (PHP 8.1+ CLI, no curl/wget needed),
+without ever putting a secret on a command line:
 
 ```
-GET /reminders-cron?token=YOUR_TOKEN&send=1
+install -m 700 bin/wt-reminders-cron.php /usr/local/bin/
+install -m 600 bin/wt-reminders-cron.conf.example /etc/wt-reminders-cron.conf   # then edit it
+wt-reminders-cron.php dry      # builds every digest, sends nothing
+wt-reminders-cron.php send     # sends
 ```
 
-Without `&send=1` it performs a **dry run** — it builds and logs previews but
-sends no mail. Recommended first run:
-
-1. Set `cron_token`; hit the URL **without** `send=1` and review the previews.
-2. Set `allow_recipients` to your own address; run with `send=1` (the first live
-   send then goes only to you).
-3. Clear `allow_recipients` to go live for everyone.
-
-You can also preview a single subscriber's digest in any language (no mail sent):
-
 ```
-GET /reminders-cron?token=YOUR_TOKEN&preview_xref=X123&lang=de
+# crontab: every day at 07:00
+0 7 * * * /usr/local/bin/wt-reminders-cron.php send
 ```
+
+Recommended first run: `dry`; then set `allow_recipients` to your own address
+and run `send` (it goes only to you); then clear `allow_recipients`.
 
 ## Licence
 

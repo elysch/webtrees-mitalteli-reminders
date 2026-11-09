@@ -1,0 +1,7 @@
+# /etc/wt-reminders-cron.conf — owned by the user that runs the cron, chmod 600.
+# Read (never executed) by bin/wt-reminders-cron.php.
+#
+# With pretty URLs:        https://example.com/webtrees/reminders-cron
+# Without (index.php):     https://example.com/webtrees/index.php?route=/reminders-cron
+CRON_URL="https://example.com/webtrees/index.php?route=/reminders-cron"
+CRON_TOKEN="PON_AQUI_EL_TOKEN_DEL_MODULO"

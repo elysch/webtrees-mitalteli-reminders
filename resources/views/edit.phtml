@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Fisharebest\Webtrees\I18N;
-use Fisharebest\Webtrees\Module\RemindersModule;
+use Mitalteli\Webtrees\Util\Reminders\RemindersModule;
 use Fisharebest\Webtrees\Tree;
 
 /**
@@ -15,6 +15,10 @@ use Fisharebest\Webtrees\Tree;
  * @var string                   $search_url
  * @var array<int,array<string,mixed>> $upcoming
  * @var int                      $horizon_days
+ * @var bool                     $sidebar_choice  members may pick their own panel mode
+ * @var string                   $sidebar_user    their choice ('' = site default)
+ * @var string                   $sidebar_site    the site-wide default mode
+ * @var array<int,string>        $sidebar_modes
  */
 
 $action_url = route(RemindersModule::class, ['tree' => $tree->name()]);
@@ -28,6 +32,17 @@ $following    = $following ?? [];
 $search_url   = $search_url ?? '';
 $upcoming     = $upcoming ?? [];
 $horizon_days = (int) ($horizon_days ?? 31);
+
+$sidebar_choice = (bool) ($sidebar_choice ?? false);
+$sidebar_user   = (string) ($sidebar_user ?? '');
+$sidebar_site   = (string) ($sidebar_site ?? 'full');
+$sidebar_modes  = $sidebar_modes ?? [];
+$mode_labels    = [
+    'full'      => I18N::translate('Full'),
+    'compact'   => I18N::translate('Compact'),
+    'collapsed' => I18N::translate('Collapsed'),
+    'hidden'    => I18N::translate('Hidden'),
+];
 
 $distance_options = [
     0  => I18N::translate('Unlimited'),
@@ -112,6 +127,36 @@ $distance_options = [
             </div>
         </div>
     </form>
+
+    <?php if ($sidebar_choice) : ?>
+        <hr class="my-4">
+
+        <h2 class="h4"><?= e(I18N::translate('Individual page panel')) ?></h2>
+
+        <form method="post" action="<?= e($action_url) ?>">
+            <?= csrf_field() ?>
+
+            <div class="row mb-3">
+                <label class="col-sm-3 col-form-label" for="sidebar_mode"><?= e(I18N::translate('Display mode')) ?></label>
+                <div class="col-sm-9">
+                    <select class="form-select" id="sidebar_mode" name="sidebar_mode">
+                        <option value="" <?= $sidebar_user === '' ? 'selected' : '' ?>>
+                            <?= e(I18N::translate('Use the site default') . ' (' . ($mode_labels[$sidebar_site] ?? $sidebar_site) . ')') ?>
+                        </option>
+                        <?php foreach ($sidebar_modes as $mode) : ?>
+                            <option value="<?= e($mode) ?>" <?= $mode === $sidebar_user ? 'selected' : '' ?>><?= e($mode_labels[$mode] ?? $mode) ?></option>
+                        <?php endforeach ?>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-sm-9 offset-sm-3">
+                    <button type="submit" name="action" value="display" class="btn btn-primary"><?= e(I18N::translate('Save')) ?></button>
+                </div>
+            </div>
+        </form>
+    <?php endif ?>
 
     <?php
     // --- People you follow ------------------------------------------------

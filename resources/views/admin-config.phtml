@@ -11,9 +11,6 @@ use Fisharebest\Webtrees\I18N;
  * @var string               $action_url
  * @var string               $cron_url
  * @var bool                 $has_token
- * @var array<int,string>    $users
- * @var int                  $run_as_user_id
- * @var bool                 $run_as_is_admin
  * @var array<string,string> $trees
  * @var string               $tree
  * @var string               $email_from
@@ -22,6 +19,7 @@ use Fisharebest\Webtrees\I18N;
  * @var string               $allow_recipients
  * @var string               $sidebar_mode
  * @var array<int,string>    $sidebar_modes
+ * @var bool                 $sidebar_user_choice
  */
 
 $mode_labels = [
@@ -68,37 +66,15 @@ $mode_labels = [
     </div>
 
     <?php if ($cron_url !== '') : ?>
-        <div class="row mb-3">
-            <label class="col-sm-3 col-form-label" for="cron_url"><?= I18N::translate('Cron URL') ?></label>
+        <div class="row mb-4">
+            <label class="col-sm-3 col-form-label" for="cron_url"><?= I18N::translate('Cron endpoint') ?></label>
             <div class="col-sm-9">
-                <input type="text" class="form-control" id="cron_url" readonly
-                       value="<?= e($cron_url . (str_contains($cron_url, '?') ? '&' : '?') . 'token=TOKEN&send=1') ?>">
-                <div class="form-text"><?= I18N::translate('Replace TOKEN with the cron token. Without send=1 it is a dry run: previews are built but no mail is sent.') ?></div>
+                <input type="text" class="form-control" id="cron_url" readonly value="<?= e($cron_url) ?>"
+                       aria-describedby="cron_url_help">
+                <div class="form-text" id="cron_url_help"><?= I18N::translate('POST only; the token is never sent in the URL. Each digest is built and sent with the privileges of its own subscriber. A GET on this URL returns the session CSRF token that the POST needs: use the PHP script shipped with the module (bin/wt-reminders-cron.php).') ?></div>
             </div>
         </div>
     <?php endif ?>
-
-    <div class="row mb-3">
-        <label class="col-sm-3 col-form-label" for="run_as_user_id"><?= I18N::translate('Run the cron as') ?></label>
-        <div class="col-sm-9">
-            <select class="form-select" id="run_as_user_id" name="run_as_user_id" aria-describedby="run_as_help">
-                <option value=""><?= I18N::translate('(none — guest)') ?></option>
-                <?php foreach ($users as $id => $label) : ?>
-                    <option value="<?= e((string) $id) ?>" <?= $id === $run_as_user_id ? 'selected' : '' ?>>
-                        <?= e($label) ?><?= $id === $run_as_user_id && $run_as_is_admin ? ' ' . e(I18N::translate('(administrator — not recommended)')) : '' ?>
-                    </option>
-                <?php endforeach ?>
-            </select>
-            <div class="form-text" id="run_as_help">
-                <?= I18N::translate('Use a dedicated account with the lowest role that can read the relationships. Every digest is built with this account’s privacy level.') ?>
-            </div>
-            <?php if ($run_as_is_admin) : ?>
-                <div class="alert alert-warning mt-2 mb-0" role="alert">
-                    <?= I18N::translate('The selected account is an administrator. Digests are built with administrator visibility, which can disclose private data to subscribers. Choose a regular member.') ?>
-                </div>
-            <?php endif ?>
-        </div>
-    </div>
 
     <div class="row mb-4">
         <label class="col-sm-3 col-form-label" for="tree"><?= I18N::translate('Tree') ?></label>
@@ -167,6 +143,17 @@ $mode_labels = [
             <?php endforeach ?>
         </div>
     </fieldset>
+
+    <div class="row mb-4">
+        <div class="col-sm-9 offset-sm-3">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="sidebar_user_choice" name="sidebar_user_choice" value="1" <?= $sidebar_user_choice ? 'checked' : '' ?>>
+                <label class="form-check-label" for="sidebar_user_choice">
+                    <?= I18N::translate('Allow members to choose their own display mode on their Reminders page; the mode above is the default.') ?>
+                </label>
+            </div>
+        </div>
+    </div>
 
     <button type="submit" class="btn btn-primary"><?= I18N::translate('Save') ?></button>
     <a class="btn btn-secondary" href="<?= e(route(ModulesAllPage::class)) ?>"><?= I18N::translate('Cancel') ?></a>

@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Mitalteli\Webtrees\Util\Reminders;
 
 use Fisharebest\Webtrees\Auth;
+use Fisharebest\Webtrees\Contracts\UserInterface;
 use Fisharebest\Webtrees\FlashMessages;
 use Fisharebest\Webtrees\Http\Exceptions\HttpAccessDeniedException;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Log;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\TreeService;
-use Fisharebest\Webtrees\Services\UserService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Throwable;
@@ -29,8 +29,9 @@ use Throwable;
  *    is saved (all-or-nothing).
  *  - The cron token is never rendered back into the page. It can only be kept,
  *    replaced, or regenerated (and a regenerated one is shown once).
- *  - The cron must not run as an administrator: every digest is built with
- *    that account's privacy level.
+ *  - The cron has no shared account any more: ReminderCron runs every digest
+ *    with the privileges of the subscriber it is built for. The legacy
+ *    run_as_user_id preference is no longer read and is cleared on save.
  */
 trait ReminderSettings
 {
@@ -53,38 +54,42 @@ trait ReminderSettings
         return in_array($mode, $this->sidebarModes(), true) ? $mode : 'full';
     }
 
+    /** May each member override the site-wide display mode on their Reminders page? */
+    public function userMayChooseSidebarMode(): bool
+    {
+        return $this->getPreference('sidebar_user_choice', '1') === '1';
+    }
+
     /**
-     * Choose the sidebar template for the configured display mode.
+     * The mode that applies to one viewer: their own choice (a user preference)
+     * when the administrator allows it, otherwise the site-wide default.
+     */
+    public function sidebarModeFor(UserInterface $user): string
+    {
+        if ($this->userMayChooseSidebarMode()) {
+            $own = $user->getPreference('reminders_sidebar_mode', '');
+
+            if (in_array($own, $this->sidebarModes(), true)) {
+                return $own;
+            }
+        }
+
+        return $this->sidebarMode();
+    }
+
+    /**
+     * Choose the sidebar template for a display mode.
      *
      * @param array<string,mixed> $vars The variables RemindersModule already computes.
+     * @param string              $mode One of sidebarModes(); "hidden" never gets here.
      */
-    protected function renderReminderSidebar(array $vars): string
+    protected function renderReminderSidebar(array $vars, string $mode): string
     {
-        $mode = $this->sidebarMode();
-
-        if ($mode === 'compact') {
-            return view($this->name() . '::sidebar-compact', $vars);
-        }
-
-        $html = view($this->name() . '::sidebar', $vars);
-
-        if ($mode !== 'collapsed') {
-            return $html;
-        }
-
-        $summary = '';
-
-        if (($vars['is_self'] ?? false) === true) {
-            $summary = I18N::translate('This is your own profile.');
-        } elseif (is_string($vars['relationship'] ?? null)) {
-            $summary = $vars['relationship'];
-        }
-
-        return view($this->name() . '::sidebar-collapsed', [
-            'title'   => $this->title(),
-            'summary' => $summary,
-            'content' => $html,
-        ]);
+        return match ($mode) {
+            'compact'   => view($this->name() . '::sidebar-compact', $vars),
+            'collapsed' => view($this->name() . '::sidebar', $vars + ['collapsed' => true]),
+            default     => view($this->name() . '::sidebar', $vars),
+        };
     }
 
     private function requireReminderAdmin(): void
@@ -100,24 +105,8 @@ trait ReminderSettings
 
         $this->layout = 'layouts/administration';
 
-        /** @var UserService $user_service */
-        $user_service = Registry::container()->get(UserService::class);
         /** @var TreeService $tree_service */
         $tree_service = Registry::container()->get(TreeService::class);
-
-        $current_id   = $this->getPreference('run_as_user_id');
-        $current_user = ctype_digit($current_id) && $current_id !== '' ? $user_service->find((int) $current_id) : null;
-
-        $users = [];
-        foreach ($user_service->all() as $user) {
-            $is_current = $current_user !== null && $user->id() === $current_user->id();
-
-            if (Auth::isAdmin($user) && !$is_current) {
-                continue; // administrators can't be newly selected
-            }
-
-            $users[$user->id()] = $user->realName() . ' (' . $user->userName() . ')';
-        }
 
         $trees = [];
         foreach ($tree_service->all() as $tree) {
@@ -129,9 +118,6 @@ trait ReminderSettings
             'action_url'          => $this->getConfigLink(),
             'cron_url'            => $this->reminderCronUrl(),
             'has_token'           => $this->getPreference('cron_token') !== '',
-            'users'               => $users,
-            'run_as_user_id'      => $current_user?->id() ?? 0,
-            'run_as_is_admin'     => $current_user !== null && Auth::isAdmin($current_user),
             'trees'               => $trees,
             'tree'                => $this->getPreference('tree'),
             'email_from'          => $this->getPreference('email_from'),
@@ -139,6 +125,7 @@ trait ReminderSettings
             'email_subject_prefix' => $this->getPreference('email_subject_prefix'),
             'allow_recipients'    => str_replace(',', "\n", $this->getPreference('allow_recipients')),
             'sidebar_mode'        => $this->sidebarMode(),
+            'sidebar_user_choice' => $this->userMayChooseSidebarMode(),
             'sidebar_modes'       => $this->sidebarModes(),
         ]);
     }
@@ -150,8 +137,6 @@ trait ReminderSettings
         $params = (array) $request->getParsedBody();
         $str    = static fn (string $key): string => is_string($params[$key] ?? null) ? trim($params[$key]) : '';
 
-        /** @var UserService $user_service */
-        $user_service = Registry::container()->get(UserService::class);
         /** @var TreeService $tree_service */
         $tree_service = Registry::container()->get(TreeService::class);
 
@@ -174,24 +159,8 @@ trait ReminderSettings
             $values['cron_token'] = $generated;
         }
 
-        // --- Account the cron runs as: must exist; never a (new) administrator. ---
-        $run_as = $str('run_as_user_id');
-
-        if ($run_as === '') {
-            $values['run_as_user_id'] = '';
-        } elseif (preg_match('/^[1-9][0-9]{0,9}$/', $run_as) !== 1) {
-            $errors[] = I18N::translate('The selected user does not exist.');
-        } else {
-            $user = $user_service->find((int) $run_as);
-
-            if ($user === null) {
-                $errors[] = I18N::translate('The selected user does not exist.');
-            } elseif (Auth::isAdmin($user) && $run_as !== $this->getPreference('run_as_user_id')) {
-                $errors[] = I18N::translate('An administrator account cannot be used to run the cron.');
-            } else {
-                $values['run_as_user_id'] = (string) $user->id();
-            }
-        }
+        // Legacy shared "run as" account: no longer used, remove it.
+        $values['run_as_user_id'] = '';
 
         // --- Tree: empty = first/only tree. ---
         $tree = $str('tree');
@@ -232,6 +201,8 @@ trait ReminderSettings
 
         $values['allow_recipients'] = implode(',', $recipients);
 
+        $values['sidebar_user_choice'] = !empty($params['sidebar_user_choice']) ? '1' : '0';
+
         // --- Panel display mode (issue #4). ---
         $mode = $str('sidebar_mode');
 
@@ -263,6 +234,9 @@ trait ReminderSettings
             // Names only — never log secrets.
             Log::addConfigurationLog('Module ' . $this->name() . ' preferences changed: ' . implode(', ', $changed));
         }
+
+        // Saving the settings is also the way to make the module re-verify its tables.
+        ReminderSchema::recheck();
 
         FlashMessages::addMessage(I18N::translate('The preferences for the module “%s” have been updated.', $this->title()), 'success');
 
@@ -308,18 +282,13 @@ trait ReminderSettings
         return [
             'Daily cron' => 'Cron diario',
             'Tree' => 'Árbol',
+            'Cron endpoint' => 'Endpoint del cron',
+            'POST only; the token is never sent in the URL. Each digest is built and sent with the privileges of its own subscriber. A GET on this URL returns the session CSRF token that the POST needs: use the PHP script shipped with the module (bin/wt-reminders-cron.php).' => 'Solo POST; el token nunca va en la URL. Cada resumen se genera y se envía con los privilegios de su propio suscriptor. Un GET a esta URL devuelve el token CSRF de la sesión que el POST necesita: usa el script PHP incluido con el módulo (bin/wt-reminders-cron.php).',
             'Cron token' => 'Token del cron',
             'A token is set. Leave this field empty to keep it.' => 'Hay un token configurado. Deja este campo vacío para conservarlo.',
             'No token is set: the cron route answers 403 until one exists. A random one is generated when you save.' => 'No hay token: la ruta del cron responde 403 hasta que exista uno. Se generará uno aleatorio al guardar.',
             'Or paste your own token (32–128 characters: letters, digits, “-”, “_”).' => 'O pega tu propio token (32–128 caracteres: letras, dígitos, “-”, “_”).',
             'Generate a new random token (invalidates the current one)' => 'Generar un token aleatorio nuevo (invalida el actual)',
-            'Cron URL' => 'URL del cron',
-            'Replace TOKEN with the cron token. Without send=1 it is a dry run: previews are built but no mail is sent.' => 'Sustituye TOKEN por el token del cron. Sin send=1 es una corrida en seco: se generan vistas previas pero no se envía correo.',
-            'Run the cron as' => 'Ejecutar el cron como',
-            '(none — guest)' => '(ninguno — invitado)',
-            'Use a dedicated account with the lowest role that can read the relationships. Every digest is built with this account’s privacy level.' => 'Usa una cuenta dedicada con el rol más bajo que pueda leer los parentescos. Todos los resúmenes se generan con el nivel de privacidad de esta cuenta.',
-            'The selected account is an administrator. Digests are built with administrator visibility, which can disclose private data to subscribers. Choose a regular member.' => 'La cuenta seleccionada es administradora. Los resúmenes se generan con visibilidad de administrador, lo que puede revelar datos privados a los suscriptores. Elige un miembro normal.',
-            '(administrator — not recommended)' => '(administrador — no recomendado)',
             '(first tree)' => '(primer árbol)',
             'Email' => 'Correo',
             'From address' => 'Dirección del remitente',
@@ -329,6 +298,9 @@ trait ReminderSettings
             'One address per line (or comma-separated). When not empty, ONLY these addresses receive mail.' => 'Una dirección por línea (o separadas por comas). Si no está vacío, SOLO estas direcciones reciben correo.',
             'Test mode is active: only the addresses above receive mail.' => 'Modo de prueba activo: solo las direcciones anteriores reciben correo.',
             'Individual page panel' => 'Panel de la página del individuo',
+            'Allow members to choose their own display mode on their Reminders page; the mode above is the default.' => 'Permitir que cada miembro elija su propio modo en su página de Cumpleaños; el modo de arriba es el predeterminado.',
+            'Use the site default' => 'Usar el valor predeterminado del sitio',
+            'Your display preference has been saved.' => 'Se guardó tu preferencia de visualización.',
             'Display mode' => 'Modo de visualización',
             'Full' => 'Completo',
             'Current behaviour: relationship, follow toggle and details.' => 'Comportamiento actual: parentesco, botón de seguimiento y detalles.',
@@ -339,8 +311,6 @@ trait ReminderSettings
             'Hidden' => 'Oculto',
             'No panel. This also removes the “remind me” toggle from individual pages; follows remain available on each member’s Reminders page.' => 'Sin panel. También quita el botón “recordarme” de las páginas de individuos; el seguimiento sigue disponible en la página Cumpleaños de cada miembro.',
             'The cron token must be 32–128 characters: letters, digits, “-” and “_”.' => 'El token del cron debe tener 32–128 caracteres: letras, dígitos, “-” y “_”.',
-            'The selected user does not exist.' => 'El usuario seleccionado no existe.',
-            'An administrator account cannot be used to run the cron.' => 'No se puede usar una cuenta de administrador para ejecutar el cron.',
             'The selected tree does not exist.' => 'El árbol seleccionado no existe.',
             'The sender address is not a valid email address.' => 'La dirección del remitente no es un correo válido.',
             'Invalid email address: %s' => 'Correo no válido: %s',

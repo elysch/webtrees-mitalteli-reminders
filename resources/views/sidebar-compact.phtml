@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
-use Fisharebest\Webtrees\View;
 
 /**
  * Compact one-line variant of the individual-page panel (display mode "compact").
+ *
+ * Like sidebar.phtml, webtrees renders this inside the right-hand sidebar
+ * accordion, which is COLLAPSED by default. The inline script therefore moves
+ * the strip into the main column (under the photo/name block) and drops the
+ * now-empty accordion item; if the anchors are not found it stays in the
+ * sidebar (graceful degradation).
  *
  * @var Individual $individual
  * @var bool       $is_self
@@ -15,31 +20,36 @@ use Fisharebest\Webtrees\View;
  * @var string     $relationship
  * @var string     $relationship_url
  * @var string     $action_url
+ * @var string     $manage_url
  * @var string     $csrf
  */
 
 $label_follow   = I18N::translate('Remind me of this birthday');
 $label_unfollow = I18N::translate('Stop reminding me');
+$relationship   = $relationship !== '' ? mb_strtoupper(mb_substr($relationship, 0, 1)) . mb_substr($relationship, 1) : '';
 
 ?>
-aaaa
-<div class="wt-reminders-compact d-flex align-items-center flex-wrap gap-2 small">
+
+<div id="wt-reminders-compact"
+     class="d-flex align-items-center flex-wrap gap-2"
+     data-csrf="<?= e($csrf) ?>"
+     data-action-url="<?= e($action_url) ?>"
+     data-xref="<?= e($individual->xref()) ?>">
+
     <?php if ($is_self) : ?>
-        <span class="text-muted"><?= I18N::translate('This is your own profile.') ?></span>
+        <span class="text-muted small"><?= e(I18N::translate('This is your own profile.')) ?></span>
     <?php else : ?>
         <?php if ($relationship !== '') : ?>
+            <span class="text-muted small text-uppercase"><?= e(I18N::translate('Relationship to you')) ?></span>
             <?php if ($relationship_url !== '') : ?>
-                <a class="badge bg-secondary text-decoration-none" href="<?= e($relationship_url) ?>"
+                <a class="badge bg-secondary text-decoration-none fs-6" href="<?= e($relationship_url) ?>"
                    title="<?= e(I18N::translate('Show full relationship')) ?>"><?= e($relationship) ?></a>
             <?php else : ?>
-                <span class="badge bg-secondary"><?= e($relationship) ?></span>
+                <span class="badge bg-secondary fs-6"><?= e($relationship) ?></span>
             <?php endif ?>
         <?php endif ?>
 
-        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" id="wt-reminders-follow"
-                data-xref="<?= e($individual->xref()) ?>"
-                data-url="<?= e($action_url) ?>"
-                data-csrf="<?= e($csrf) ?>"
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 ms-auto" id="wt-reminders-follow"
                 data-following="<?= $is_following ? '1' : '0' ?>"
                 data-label-follow="<?= e($label_follow) ?>"
                 data-label-unfollow="<?= e($label_unfollow) ?>"
@@ -49,56 +59,94 @@ aaaa
             <span class="visually-hidden" data-role="text"><?= e($is_following ? $label_unfollow : $label_follow) ?></span>
         </button>
     <?php endif ?>
+
+    <a href="<?= e($manage_url) ?>" class="small text-muted<?= $is_self ? ' ms-auto' : '' ?>"
+       title="<?= e(I18N::translate('Manage all reminders')) ?>" aria-label="<?= e(I18N::translate('Manage all reminders')) ?>">⚙</a>
 </div>
 
-<?php if (!$is_self) : ?>
-    <?php View::push('javascript') ?>
-    <script>
-        (function () {
-            const btn = document.getElementById('wt-reminders-follow');
-            if (!btn) {
-                return;
-            }
+<script>
+(function () {
+    var root = document.getElementById('wt-reminders-compact');
+    if (!root || root.dataset.bound) {
+        return;
+    }
+    root.dataset.bound = '1';
 
-            btn.addEventListener('click', function () {
-                const following = btn.dataset.following === '1';
-                const body = new URLSearchParams({
-                    action: following ? 'unfollow' : 'follow',
-                    target: btn.dataset.xref,
-                    ajax: '1',
-                    _csrf: btn.dataset.csrf
-                });
+    // --- 1. Follow / unfollow toggle ---------------------------------------
+    var btn = document.getElementById('wt-reminders-follow');
+    if (btn) {
+        btn.addEventListener('click', function () {
+            var following = btn.dataset.following === '1';
+            var body = 'action=' + encodeURIComponent(following ? 'unfollow' : 'follow')
+                     + '&target=' + encodeURIComponent(root.dataset.xref)
+                     + '&ajax=1';
 
-                btn.disabled = true;
+            btn.disabled = true;
 
-                fetch(btn.dataset.url, {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'X-CSRF-TOKEN': btn.dataset.csrf
-                    },
-                    body: body.toString()
-                })
-                    .then(function (response) {
-                        if (!response.ok) {
-                            throw new Error('HTTP ' + response.status);
-                        }
-                        return response.json();
-                    })
-                    .then(function () {
-                        const now = !following;
-                        const label = now ? btn.dataset.labelUnfollow : btn.dataset.labelFollow;
-                        btn.dataset.following = now ? '1' : '0';
-                        btn.setAttribute('aria-pressed', now ? 'true' : 'false');
-                        btn.title = label;
-                        btn.querySelector('[data-role="icon"]').textContent = now ? '🔔' : '🔕';
-                        btn.querySelector('[data-role="text"]').textContent = label;
-                    })
-                    .catch(function () { /* keep previous state */ })
-                    .finally(function () { btn.disabled = false; });
+            fetch(root.dataset.actionUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'X-CSRF-TOKEN': root.dataset.csrf,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: body,
+                credentials: 'same-origin'
+            }).then(function (r) {
+                return r.json();
+            }).then(function (data) {
+                if (!data || data.ok !== true) {
+                    throw new Error('unexpected response');
+                }
+                var now = !following;
+                var label = now ? btn.dataset.labelUnfollow : btn.dataset.labelFollow;
+                btn.dataset.following = now ? '1' : '0';
+                btn.setAttribute('aria-pressed', now ? 'true' : 'false');
+                btn.title = label;
+                btn.querySelector('[data-role="icon"]').textContent = now ? '🔔' : '🔕';
+                btn.querySelector('[data-role="text"]').textContent = label;
+            }).catch(function () {
+                btn.classList.add('btn-outline-danger');
+                setTimeout(function () { btn.classList.remove('btn-outline-danger'); }, 1500);
+            }).then(function () {
+                btn.disabled = false;
             });
-        })();
-    </script>
-    <?php View::endpush() ?>
-<?php endif ?>
+        });
+    }
+
+    // --- 2. Promote the strip into the main column --------------------------
+    function promote() {
+        if (root.dataset.promoted) {
+            return;
+        }
+
+        var outerRow  = root.closest('.row');
+        var mainCol   = outerRow ? outerRow.querySelector('.col-sm-8') : null;
+        var headerRow = mainCol ? mainCol.querySelector('.row.mb-4') : null;
+
+        if (!headerRow) {
+            return; // anchors not found: leave it safely in the sidebar
+        }
+
+        root.dataset.promoted = '1';
+
+        var item = root.closest('.accordion-item');
+
+        var wrapper = document.createElement('div');
+        wrapper.className = 'border rounded px-3 py-2 mb-3 wt-reminders-strip';
+        wrapper.appendChild(root); // move the live node (listeners come with it)
+
+        headerRow.insertAdjacentElement('afterend', wrapper);
+
+        if (item) {
+            item.remove();
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', promote);
+    } else {
+        promote();
+    }
+})();
+</script>

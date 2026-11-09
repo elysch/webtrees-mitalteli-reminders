@@ -24,10 +24,24 @@ use Fisharebest\Webtrees\Individual;
  * @var string     $action_url    POST endpoint (follow / unfollow)
  * @var string     $manage_url    link to the full reminder-settings page
  * @var string     $csrf          CSRF token
+ * @var bool       $collapsed     (optional) fold the card inside a <details>, closed by default
  */
+
+$collapsed = (bool) ($collapsed ?? false);
+
+$summary = $is_self
+    ? I18N::translate('This is your own profile.')
+    : ($relationship !== ''
+        ? I18N::translate('Relationship to you') . ': ' . mb_strtoupper(mb_substr($relationship, 0, 1)) . mb_substr($relationship, 1)
+        : I18N::translate('Reminders'));
 
 ?>
 
+<?php if ($collapsed) : ?>
+<details class="wt-reminders-collapsed">
+    <summary class="fw-semibold" style="cursor: pointer;"><?= e($summary) ?></summary>
+    <div class="mt-3">
+<?php endif ?>
 <div id="wt-follow-sidebar"
      data-csrf="<?= e($csrf) ?>"
      data-action-url="<?= e($action_url) ?>"
@@ -84,6 +98,10 @@ use Fisharebest\Webtrees\Individual;
         <a href="<?= e($manage_url) ?>" class="small"><?= e(I18N::translate('Manage all reminders')) ?></a>
     </div>
 </div>
+<?php if ($collapsed) : ?>
+    </div>
+</details>
+<?php endif ?>
 
 <script>
 (function () {
@@ -159,13 +177,15 @@ use Fisharebest\Webtrees\Individual;
         root.dataset.promoted = '1';
 
         var item = root.closest('.accordion-item');
+        // In "collapsed" mode the card is wrapped in a <details>: move the whole wrapper.
+        var unit = root.closest('details.wt-reminders-collapsed') || root;
 
         var wrapper = document.createElement('div');
         wrapper.className = 'card border-primary shadow-sm mb-4 wt-reminders-card';
 
         var bodyDiv = document.createElement('div');
-        bodyDiv.className = 'card-body py-3';
-        bodyDiv.appendChild(root); // move the live node (listeners come with it)
+        bodyDiv.className = unit === root ? 'card-body py-3' : 'card-body py-2';
+        bodyDiv.appendChild(unit); // move the live node (listeners come with it)
 
         wrapper.appendChild(bodyDiv);
         headerRow.insertAdjacentElement('afterend', wrapper);

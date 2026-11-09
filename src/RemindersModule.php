@@ -19,6 +19,7 @@ use Fisharebest\Webtrees\Module\ModuleConfigInterface;
 use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\Contracts\UserInterface;
 use Fisharebest\Webtrees\DB;
+use Fisharebest\Webtrees\FlashMessages;
 use Fisharebest\Webtrees\Http\RequestHandlers\LoginPage;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
@@ -38,12 +39,14 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Throwable;
 
+require_once __DIR__ . '/ReminderSchema.php';
 require_once __DIR__ . '/ReminderSubscriptions.php';
 require_once __DIR__ . '/ReminderFollows.php';
 require_once __DIR__ . '/ReminderRelationships.php';
 require_once __DIR__ . '/ReminderService.php';
 require_once __DIR__ . '/ReminderSender.php';
 require_once __DIR__ . '/ReminderSettings.php';
+require_once __DIR__ . '/ReminderCron.php';
 
 use Mitalteli\Webtrees\Util\Reminders\ReminderSettings;
 use Mitalteli\Webtrees\Util\Reminders\ReminderRelationships;
@@ -63,6 +66,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
     use ViewResponseTrait;
     use ModuleConfigTrait;
     use ReminderSettings;
+    use ReminderCron;
 
     protected const ROUTE_URL  = '/tree/{tree}/reminders';
     protected const ROUTE_CRON = '/reminders-cron';
@@ -81,6 +85,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
         $router->get(static::class, static::ROUTE_URL, $this);
         $router->post(static::class . ':save', static::ROUTE_URL, $this);
         $router->get(static::class . ':cron', static::ROUTE_CRON, $this);
+        $router->post(static::class . ':cronpost', static::ROUTE_CRON, $this);
         $router->allows(RequestMethodInterface::METHOD_POST);
 
         View::registerNamespace($this->name(), $this->resourcesFolder() . 'views/');
@@ -460,9 +465,9 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
             return false;
         }
 
-        if ($this->sidebarMode() === 'hidden') {
+        if ($this->sidebarModeFor(Auth::user()) === 'hidden') {
             return false;
-        }        
+        }
 
         return $individual->tree()->getUserPreference(Auth::user(), UserInterface::PREF_TREE_ACCOUNT_XREF) !== '';
     }
@@ -550,7 +555,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
                 'action_url'       => route(static::class, ['tree' => $tree->name()]),
                 'manage_url'       => route(static::class, ['tree' => $tree->name()]),
                 'csrf'             => csrf_token(),
-            ]);
+            ], $this->sidebarModeFor($user));
         } catch (Throwable $e) {
             return '';
         }
@@ -559,24 +564,21 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
     /**
      * Look up the short biography for a person in the "Famous family members"
      * gallery (wt_famous_people). Returns null when they are not a gallery
-     * member. Raw mysqli — that table has a literal, un-prefixed name (it is
-     * owned by the famous-people module), and reads webtrees' own DB config.
+     * member, or when that other module's table does not exist. The table has a
+     * literal, un-prefixed name (it is owned by the famous-people module), so it
+     * is queried by that exact name — through webtrees' own database connection.
      *
      * @return array{bio_en:string,bio_de:string,wiki_en:string,wiki_de:string}|null
      */
     private function famousEntry(string $xref): ?array
     {
         try {
-            $c    = parse_ini_file(dirname(__DIR__, 2) . '/data/config.ini.php');
-            $db   = new \mysqli($c['dbhost'], $c['dbuser'], $c['dbpass'], $c['dbname'], (int) ($c['dbport'] ?? 3306));
-            $db->set_charset('utf8mb4');
-            $stmt = $db->prepare('SELECT bio_en,bio_de,wiki_en,wiki_de FROM wt_famous_people WHERE xref = ? LIMIT 1');
-            $stmt->bind_param('s', $xref);
-            $stmt->execute();
-            $row = $stmt->get_result()->fetch_assoc();
-            $db->close();
+            $row = DB::connection()->selectOne(
+                'SELECT bio_en, bio_de, wiki_en, wiki_de FROM wt_famous_people WHERE xref = ? LIMIT 1',
+                [$xref]
+            );
 
-            return $row ?: null;
+            return $row === null ? null : (array) $row;
         } catch (Throwable $e) {
             return null;
         }
@@ -593,7 +595,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
         $route = (string) ($request->getQueryParams()['route'] ?? $request->getUri()->getPath());
 
         if (str_contains($route, 'reminders-cron')) {
-            return $this->handleCron($request);
+            return $this->handleCronRequest($request);
         }
 
         if ($request->getMethod() === RequestMethodInterface::METHOD_POST) {
@@ -654,6 +656,10 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
             'search_url'   => route(static::class, ['tree' => $tree->name(), 'search' => '1']),
             'upcoming'     => $this->upcomingList($tree, $xref, $subscription),
             'horizon_days' => self::PREVIEW_HORIZON_DAYS,
+            'sidebar_choice' => $this->userMayChooseSidebarMode(),
+            'sidebar_user'   => $user->getPreference('reminders_sidebar_mode', ''),
+            'sidebar_site'   => $this->sidebarMode(),
+            'sidebar_modes'  => $this->sidebarModes(),
         ]);
     }
 
@@ -964,6 +970,19 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
             return $this->handleFollow($request, $tree, $xref, $action, $params);
         }
 
+        // --- Personal display mode of the individual-page panel. Only the
+        // viewer's own preference, only a whitelisted value, only if allowed.
+        if ($action === 'display') {
+            $mode = is_string($params['sidebar_mode'] ?? null) ? $params['sidebar_mode'] : '';
+
+            if ($this->userMayChooseSidebarMode() && ($mode === '' || in_array($mode, $this->sidebarModes(), true))) {
+                $user->setPreference('reminders_sidebar_mode', $mode);
+                FlashMessages::addMessage(I18N::translate('Your display preference has been saved.'), 'success');
+            }
+
+            return $back;
+        }
+
         $days_ahead       = (int) ($params['days_ahead'] ?? 1);
         $max_distance     = (int) ($params['max_distance'] ?? 0);
         $include_deceased = !empty($params['include_deceased']);
@@ -1043,140 +1062,6 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
         }
 
         return redirect(route(static::class, ['tree' => $tree->name()]));
-    }
-
-    /**
-     * Cron entry point: build and (optionally) send digests for all subscribers.
-     *
-     * Guarded by a token preference. Without ?send=1 it only renders previews
-     * (no mail). An optional "allow_recipients" preference (CSV of emails)
-     * restricts who actually receives mail — used for the first live run.
-     */
-    private function handleCron(ServerRequestInterface $request): ResponseInterface
-    {
-        $configured_token = (string) $this->getPreference('cron_token', '');
-        $supplied_token   = Validator::queryParams($request)->string('token', '');
-
-        if ($configured_token === '' || !hash_equals($configured_token, $supplied_token)) {
-            return response('Forbidden', StatusCodeInterface::STATUS_FORBIDDEN);
-        }
-
-        $user_service = Registry::container()->get(UserService::class);
-
-        // The cron runs unauthenticated; the family tree is private, so without
-        // elevation webtrees privacy hides all events and relationships. Run as
-        // a configured user (a tree member/admin) so the engine can read data.
-        $run_as = (int) $this->getPreference('run_as_user_id', '0');
-
-        if ($run_as > 0) {
-            $run_as_user = $user_service->find($run_as);
-
-            if ($run_as_user !== null) {
-                Auth::login($run_as_user);
-            }
-        }
-
-        $really_send = Validator::queryParams($request)->integer('send', 0) === 1;
-
-        $allow_raw = (string) $this->getPreference('allow_recipients', '');
-        $allow     = array_filter(array_map('trim', explode(',', $allow_raw)));
-
-        $tree_name = (string) $this->getPreference('tree', self::DEFAULT_TREE);
-        $tree      = $this->resolveTree($tree_name);
-
-        if ($tree === null) {
-            return response('Tree not found: ' . $tree_name, StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR);
-        }
-
-        $calendar     = Registry::container()->get(CalendarService::class);
-        $relationship = Registry::container()->get(RelationshipService::class);
-        $email        = Registry::container()->get(EmailService::class);
-
-        $service       = new ReminderService($calendar, $relationship, $this->name());
-        $subscriptions = new ReminderSubscriptions();
-        $from          = new ReminderSender(
-            (string) $this->getPreference('email_from', ''),
-            (string) $this->getPreference('email_from_name', '')
-        );
-
-        // --- Test affordance (token-gated, read-only, sends NO mail) ---------
-        // Render ONE subscriber's digest as HTML in a chosen language so all
-        // five languages can be eyeballed safely:
-        //   ?route=/reminders-cron&token=…&preview_xref=I45&lang=de   (NO &send=1)
-        $preview_xref = Validator::queryParams($request)->string('preview_xref', '');
-
-        if ($preview_xref !== '') {
-            $sub      = $subscriptions->find($preview_xref);
-            $p_ahead  = (int) ($sub['days_ahead'] ?? 1);
-            $p_dist   = (int) ($sub['max_distance'] ?? 0);
-            $p_dec    = (bool) ($sub['include_deceased'] ?? 0);
-            $this->applyLocale(Validator::queryParams($request)->string('lang', ''));
-            $html = $service->digestHtml($tree, $preview_xref, $p_ahead, $p_dist, $p_dec);
-
-            return response($html !== '' ? $html : '(no events in range for ' . $preview_xref . ')', StatusCodeInterface::STATUS_OK)
-                ->withHeader('content-type', 'text/html; charset=UTF-8');
-        }
-
-        // Fallback language for subscribers who never chose one in webtrees.
-        $default_lang = (string) Site::getPreference('LANGUAGE');
-
-        $log   = [];
-        $log[] = $really_send ? '=== SENDING ===' : '=== DRY RUN (no mail) ===';
-        $log[] = 'Allow-list: ' . ($allow === [] ? '(all)' : implode(', ', $allow));
-        $log[] = '';
-
-        foreach ($subscriptions->all() as $row) {
-            $xref  = (string) ($row['gedid'] ?? '');
-            $to    = (string) ($row['email'] ?? '');
-            $name  = (string) ($row['namekomplett'] ?? '');
-            $uid   = (int) ($row['user_id'] ?? 0);
-            $ahead = (int) ($row['days_ahead'] ?? 1);
-            $dist  = (int) ($row['max_distance'] ?? 0);
-            $dec   = (bool) ($row['include_deceased'] ?? 0);
-
-            try {
-                // Localise the digest to the subscriber's own webtrees language
-                // (falls back to the site default, then English).
-                $recipient = $user_service->find($uid);
-                $lang      = $recipient !== null ? $recipient->getPreference('language', '') : '';
-                $lang_used = $lang !== '' ? $lang : ($default_lang !== '' ? $default_lang : 'en-US');
-                $this->applyLocale($lang_used);
-
-                $html = $service->digestHtml($tree, $xref, $ahead, $dist, $dec);
-
-                if ($html === '') {
-                    $log[] = "skip  {$xref} <{$to}> — no events in range";
-                    continue;
-                }
-
-                if (!$really_send) {
-                    $log[] = "PREVIEW {$xref} <{$to}> [{$lang_used}] — digest built ok";
-                    continue;
-                }
-
-                if ($allow !== [] && !in_array($to, $allow, true)) {
-                    $log[] = "hold  {$xref} <{$to}> — not on allow-list";
-                    continue;
-                }
-
-                if ($recipient === null) {
-                    $log[] = "ERR   {$xref} <{$to}> — no webtrees user id={$uid}";
-                    continue;
-                }
-
-                $brand   = trim((string) $this->getPreference('email_subject_prefix', ''));
-                $subject = $brand !== '' ? $brand . ' ' . I18N::translate('Birthdays') : I18N::translate('Birthdays');
-                $text    = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $html));
-                $ok      = $email->send($from, $recipient, $from, $subject, $text, $html);
-
-                $log[] = ($ok ? 'SENT  ' : 'FAIL  ') . "{$xref} <{$to}> ({$name})";
-            } catch (Throwable $e) {
-                $log[] = "EXC   {$xref} <{$to}> — " . $e->getMessage();
-            }
-        }
-
-        return response(implode("\n", $log), StatusCodeInterface::STATUS_OK)
-            ->withHeader('content-type', 'text/plain; charset=UTF-8');
     }
 
     /**
