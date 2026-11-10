@@ -1,7 +1,7 @@
 Module for webtrees genealogy software: Event Reminders.
 ===============================================================
 
-[![Latest Release](https://img.shields.io/github/release/elysch/webtrees-mitalteli-report-researchtasks.svg)][1]
+[![Latest Release](https://img.shields.io/github/release/elysch/webtrees-mitalteli-reminders.svg)][1]
 [![webtrees major version](https://img.shields.io/badge/webtrees-v2.2.6-green)][2]
 [![webtrees major version](https://img.shields.io/badge/webtrees-v2.3.x-green)][2]
 [![Downloads](https://img.shields.io/github/downloads/elysch/webtrees-mitalteli-reminders/total.svg)]()
