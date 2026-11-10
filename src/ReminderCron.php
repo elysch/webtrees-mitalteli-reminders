@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Mitalteli\Webtrees\Util\Reminders;
 
-use Fig\Http\Message\RequestMethodInterface;
 use Fig\Http\Message\StatusCodeInterface;
 use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\Contracts\UserInterface;
@@ -16,19 +15,22 @@ use Fisharebest\Webtrees\Services\EmailService;
 use Fisharebest\Webtrees\Services\RelationshipService;
 use Fisharebest\Webtrees\Services\UserService;
 use Fisharebest\Webtrees\Site;
+use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\Validator;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Throwable;
 
 /**
- * Cron endpoint of the Reminders module: POST-only, one subscriber per request,
- * executed with that subscriber's own privileges.
+ * Cron endpoint of the Event reminders module: POST-only, one subscriber per
+ * request, executed with that subscriber's own privileges. It is the module
+ * action "Cron" of webtrees' built-in module route (the URL is shown as
+ * "Cron endpoint" in the module's administration page).
  *
- *   GET  /reminders-cron   -> the session's CSRF token (text/plain). webtrees'
+ *   GET  <cron endpoint>   -> the session's CSRF token (text/plain). webtrees'
  *                             CheckCsrf middleware requires it on every POST
  *                             and gives a cron client no other way to get one.
- *   POST /reminders-cron   -> form fields (the token is never in the URL):
+ *   POST <cron endpoint>   -> form fields (the token is never in the URL):
  *        _csrf   CSRF token from the GET above (same session cookie)
  *        token   the module's cron_token
  *        action  list | run | preview
@@ -47,24 +49,21 @@ trait ReminderCron
 {
     private const REMINDER_XREF_PATTERN = '/^[A-Za-z0-9]{1,20}$/';
 
-    private function handleCronRequest(ServerRequestInterface $request): ResponseInterface
+    /** Module action "Cron", GET: hand out the session's CSRF token. */
+    public function getCronAction(ServerRequestInterface $request): ResponseInterface
     {
-        return match ($request->getMethod()) {
-            RequestMethodInterface::METHOD_GET  => $this->cronText(csrf_token()),
-            RequestMethodInterface::METHOD_POST => $this->handleCronPost($request),
-            default                              => $this->cronText('Method Not Allowed', StatusCodeInterface::STATUS_METHOD_NOT_ALLOWED)
-                ->withHeader('allow', 'GET, POST'),
-        };
+        return $this->cronText(csrf_token());
     }
 
-    private function handleCronPost(ServerRequestInterface $request): ResponseInterface
+    /** Module action "Cron", POST: list subscribers, or run/preview one of them. */
+    public function postCronAction(ServerRequestInterface $request): ResponseInterface
     {
         $body       = Validator::parsedBody($request);
         $configured = (string) $this->getPreference('cron_token', '');
         $supplied   = $body->string('token', '');
 
         if ($configured === '' || !hash_equals($configured, $supplied)) {
-            Log::addAuthenticationLog('Reminders cron: request rejected (missing or invalid token)');
+            Log::addAuthenticationLog('Event reminders cron: request rejected (missing or invalid token)');
 
             return $this->cronText('Forbidden', StatusCodeInterface::STATUS_FORBIDDEN);
         }
@@ -100,7 +99,7 @@ trait ReminderCron
 
             return $this->cronText($xrefs === [] ? '' : implode("\n", $xrefs) . "\n");
         } catch (Throwable $e) {
-            Log::addErrorLog('Reminders cron (list): ' . $e->getMessage());
+            Log::addErrorLog('Event reminders cron (list): ' . $e->getMessage());
 
             return $this->cronText("ERR   list failed\n", StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR);
         }
@@ -112,7 +111,7 @@ trait ReminderCron
             $row = (new ReminderSubscriptions())->find($xref);
 
             if ($row === null) {
-                return $this->cronLine("ERR   {$xref} — not subscribed", StatusCodeInterface::STATUS_NOT_FOUND);
+                return $this->cronLine("ERR   {$xref} — not subscribed");
             }
 
             /** @var UserService $user_service */
@@ -140,7 +139,7 @@ trait ReminderCron
                 Auth::logout();
             }
         } catch (Throwable $e) {
-            Log::addErrorLog('Reminders cron: ' . $e->getMessage());
+            Log::addErrorLog('Event reminders cron: ' . $e->getMessage());
 
             return $this->cronLine("EXC   {$xref} — " . $this->cronClean($e->getMessage()));
         }
@@ -153,7 +152,7 @@ trait ReminderCron
     {
         // Fail closed: carry on only if the session really is the subscriber.
         if (Auth::id() !== $recipient->id()) {
-            return $this->cronLine("ERR   {$xref} — could not switch to the subscriber's account", StatusCodeInterface::STATUS_INTERNAL_SERVER_ERROR);
+            return $this->cronLine("ERR   {$xref} — could not switch to the subscriber's account");
         }
 
         // Resolved AFTER login: TreeService::all() only lists trees this user may see.
@@ -174,6 +173,7 @@ trait ReminderCron
         $ahead = (int) ($row['days_ahead'] ?? 1);
         $dist  = (int) ($row['max_distance'] ?? 0);
         $dec   = (bool) ($row['include_deceased'] ?? 0);
+        $mar   = (bool) ($row['include_marriages'] ?? 0);
 
         $language = $recipient->getPreference('language', '');
         $default  = (string) Site::getPreference('LANGUAGE');
@@ -189,10 +189,11 @@ trait ReminderCron
         $service = new ReminderService(
             Registry::container()->get(CalendarService::class),
             Registry::container()->get(RelationshipService::class),
-            $this->name()
+            $this->name(),
+            fn (Tree $t): string => $this->editUrl($t)
         );
 
-        $html = $service->digestHtml($tree, $xref, $ahead, $dist, $dec);
+        $html = $service->digestHtml($tree, $xref, $ahead, $dist, $dec, $mar);
 
         if ($action === 'preview') {
             return response($html !== '' ? $html : '(no events in range for ' . $xref . ')', StatusCodeInterface::STATUS_OK)
@@ -215,7 +216,7 @@ trait ReminderCron
         }
 
         $brand   = trim((string) $this->getPreference('email_subject_prefix', ''));
-        $subject = $brand !== '' ? $brand . ' ' . I18N::translate('Birthdays') : I18N::translate('Birthdays');
+        $subject = $brand !== '' ? $brand . ' ' . I18N::translate('Event reminders') : I18N::translate('Event reminders');
         $text    = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $html));
         $from    = new ReminderSender(
             (string) $this->getPreference('email_from', ''),
@@ -227,6 +228,11 @@ trait ReminderCron
         return $this->cronLine(($ok ? 'SENT  ' : 'FAIL  ') . "{$xref} <{$to}> ({$name})");
     }
 
+    /**
+     * Per-subscriber outcomes (including errors) are answered with HTTP 200 and an
+     * "ERR/EXC/skip/..." line, so the cron client can tell them apart from a
+     * transport or routing problem (any non-200 status).
+     */
     private function cronLine(string $line, int $status = StatusCodeInterface::STATUS_OK): ResponseInterface
     {
         return $this->cronText($line . "\n", $status);

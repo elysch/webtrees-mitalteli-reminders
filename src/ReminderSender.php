@@ -34,7 +34,7 @@ class ReminderSender implements UserInterface
 
     public function realName(): string
     {
-        return $this->displayName !== '' ? $this->displayName : 'Birthday Reminders';
+        return $this->displayName !== '' ? $this->displayName : 'Event Reminders';
     }
 
     public function userName(): string

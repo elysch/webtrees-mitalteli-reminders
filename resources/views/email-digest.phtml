@@ -5,26 +5,25 @@ declare(strict_types=1);
 use Fisharebest\Webtrees\Fact;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
-use Fisharebest\Webtrees\Module\ReminderService;
-use Mitalteli\Webtrees\Util\Reminders\RemindersModule;
 use Fisharebest\Webtrees\Tree;
 
 /**
- * Email body for a birthday-reminder digest.
+ * Email body for an event-reminder digest (birthdays and wedding anniversaries).
  *
  * Localised to the subscriber's language: the cron sets I18N::init() and
  * Carbon::setLocale() per subscriber before rendering, so I18N::translate()
  * strings, relationship labels and dates all follow the recipient's language.
  *
  * @var Tree  $tree
- * @var array<int,array{title:string,is_today:bool,events:array<int,array{record:Individual,fact:Fact,distance:int,relationship:string}>}> $sections
+ * @var array<int,array{title:string,is_today:bool,events:array<int,array{type:string,name:string,record:Individual|\Fisharebest\Webtrees\Family,fact:Fact,distance:int,relationship:string}>}> $sections
  * @var int   $days_ahead
  * @var int   $max_distance
  * @var bool  $include_deceased
+ * @var bool  $include_marriages
+ * @var string $manage_url  link to the member's reminder settings page
  * @var array<string,string> $user_emails  xref => linked account email (for the "Send birthday email" link)
  */
 
-$manage_url = route(RemindersModule::class, ['tree' => $tree->name()]);
 ?>
 <div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #222;">
     <?php foreach ($sections as $section) : ?>
@@ -36,11 +35,15 @@ $manage_url = route(RemindersModule::class, ['tree' => $tree->name()]);
             $fact     = $event['fact'];
             $anniv    = (int) $fact->anniv;
             $deceased = !empty($event['deceased']);
+            $wedding  = ($event['type'] ?? '') === 'MARR';
             ?>
             <div style="margin: 0 0 12px;">
                 <a href="<?= e($record->url()) ?>" style="color: #045704; text-decoration: none; font-weight: bold;">
-                    <?= e(ReminderService::displayName($record)) ?>
+                    <?= $wedding ? '&#128141; ' : '' ?><?= e($event['name']) ?>
                 </a>
+                <?php if ($wedding) : ?>
+                    <span style="display: inline-block; margin-left: 6px; padding: 1px 7px; font-size: 11px; color: #444; background: #f1f1f1; border-radius: 10px; vertical-align: middle;"><?= e(I18N::translate('Wedding anniversary')) ?></span>
+                <?php endif ?>
                 <?php if (!empty($event['followed'])) : ?>
                     <span style="display: inline-block; margin-left: 6px; padding: 1px 7px; font-size: 11px; font-weight: bold; color: #045704; background: #e7f3e7; border-radius: 10px; vertical-align: middle;">&#9733; <?= e(I18N::translate('Followed')) ?></span>
                 <?php endif ?>
@@ -57,7 +60,7 @@ $manage_url = route(RemindersModule::class, ['tree' => $tree->name()]);
                         <br><span style="color: #045704;"><?= $event['relationship'] ?></span>
                     <?php endif ?>
                     <?php $bday_email = $user_emails[$record->xref()] ?? null; ?>
-                    <?php if ($section['is_today'] && $bday_email !== null && !$deceased) : ?>
+                    <?php if ($section['is_today'] && $bday_email !== null && !$deceased && !$wedding) : ?>
                         <br><a href="mailto:<?= e($bday_email) ?>?subject=<?= rawurlencode(I18N::translate('Happy birthday')) ?>" style="color: #045704; text-decoration: none;">&#9993; <?= e(I18N::translate('Send birthday email')) ?></a>
                     <?php endif ?>
                 </div>
@@ -69,14 +72,21 @@ $manage_url = route(RemindersModule::class, ['tree' => $tree->name()]);
     <p style="font-size: 12px; color: #666;">
         <u><?= e(I18N::translate('Your current settings')) ?></u><br>
         <?= e(I18N::translate('Maximum distance to relative')) ?>: <?= $max_distance === 0 ? e(I18N::translate('Unlimited')) : (int) $max_distance ?><br>
-        <?= e($days_ahead === 1
-            ? I18N::translate('Notifications: %s day ahead', I18N::number($days_ahead))
-            : I18N::translate('Notifications: %s days ahead', I18N::number($days_ahead))) ?>
+        <?php if ($days_ahead === 0) : ?>
+            <?= e(I18N::translate('Notifications: same day only')) ?>
+        <?php else : ?>
+            <?= e($days_ahead === 1
+                ? I18N::translate('Notifications: %s day ahead', I18N::number($days_ahead))
+                : I18N::translate('Notifications: %s days ahead', I18N::number($days_ahead))) ?>
+        <?php endif ?>
         <?php if (!empty($include_deceased)) : ?>
-            <br><?= e(I18N::translate('Including birthdays of deceased people')) ?>
+            <br><?= e(I18N::translate('Including events of deceased people')) ?>
+        <?php endif ?>
+        <?php if (!empty($include_marriages)) : ?>
+            <br><?= e(I18N::translate('Including wedding anniversaries')) ?>
         <?php endif ?>
     </p>
     <p style="font-size: 12px;">
-        <a href="<?= e($manage_url) ?>"><?= e(I18N::translate('Manage your birthday reminder subscriptions')) ?></a>
+        <a href="<?= e($manage_url) ?>"><?= e(I18N::translate('Manage your event reminder subscriptions')) ?></a>
     </p>
 </div>

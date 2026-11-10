@@ -43,7 +43,7 @@ final class ReminderSchema
     private const REFERENCE_TABLES = ['individuals', 'user_gedcom_setting'];
 
     private const MARKER  = 'MITALTELI_REMINDERS_SCHEMA';
-    private const VERSION = '2';
+    private const VERSION = '3';
 
     private static bool $ready = false;
 
@@ -82,6 +82,10 @@ final class ReminderSchema
         $missing    = [];
         $misaligned = [];
 
+        // Columns added after the first release (table already exists without them).
+        $needs_marriages = $schema->hasTable(self::SUBSCRIPTIONS)
+            && !$schema->hasColumn(self::SUBSCRIPTIONS, 'include_marriages');
+
         foreach ([self::SUBSCRIPTIONS, self::FOLLOWS] as $table) {
             if (!$schema->hasTable($table)) {
                 $missing[] = $table;
@@ -90,7 +94,7 @@ final class ReminderSchema
             }
         }
 
-        if ($missing === [] && $misaligned === []) {
+        if ($missing === [] && $misaligned === [] && !$needs_marriages) {
             return;
         }
 
@@ -108,6 +112,12 @@ final class ReminderSchema
 
             foreach ($misaligned as $table) {
                 self::align($table, $encoding ?? ['charset' => '', 'collation' => '']);
+            }
+
+            if ($needs_marriages) {
+                DB::schema()->table(self::SUBSCRIPTIONS, static function (Blueprint $table): void {
+                    $table->boolean('include_marriages')->default(false);
+                });
             }
         } finally {
             if ($reopen) {
@@ -173,6 +183,7 @@ final class ReminderSchema
                     $table->integer('days_ahead')->default(1);
                     $table->integer('max_distance')->default(0);
                     $table->boolean('include_deceased')->default(false);
+                    $table->boolean('include_marriages')->default(false);
                     $table->timestamp('created')->useCurrent();
 
                     $table->unique('gedid', DB::prefix($name . '_gedid_unique'));

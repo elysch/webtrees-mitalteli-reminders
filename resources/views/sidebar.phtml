@@ -33,7 +33,7 @@ $summary = $is_self
     ? I18N::translate('This is your own profile.')
     : ($relationship !== ''
         ? I18N::translate('Relationship to you') . ': ' . mb_strtoupper(mb_substr($relationship, 0, 1)) . mb_substr($relationship, 1)
-        : I18N::translate('Reminders'));
+        : "\u{2696} " . I18N::translate('Event reminders'));
 
 ?>
 

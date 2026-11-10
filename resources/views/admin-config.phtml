@@ -11,6 +11,7 @@ use Fisharebest\Webtrees\I18N;
  * @var string               $action_url
  * @var string               $cron_url
  * @var bool                 $has_token
+ * @var string               $revealed_token  the generated token, on the single page view that follows its generation; '' otherwise
  * @var array<string,string> $trees
  * @var string               $tree
  * @var string               $email_from
@@ -26,7 +27,7 @@ $mode_labels = [
     'full'      => [I18N::translate('Full'), I18N::translate('Current behaviour: relationship, follow toggle and details.')],
     'compact'   => [I18N::translate('Compact'), I18N::translate('One line: relationship badge plus a small follow button.')],
     'collapsed' => [I18N::translate('Collapsed'), I18N::translate('Full panel, folded by default; click the summary line to expand.')],
-    'hidden'    => [I18N::translate('Hidden'), I18N::translate('No panel. This also removes the “remind me” toggle from individual pages; follows remain available on each member’s Reminders page.')],
+    'hidden'    => [I18N::translate('Hidden'), I18N::translate('No panel. This also removes the “remind me” toggle from individual pages; follows remain available on each member’s Event reminders page.')],
 ];
 
 ?>
@@ -71,10 +72,39 @@ $mode_labels = [
             <div class="col-sm-9">
                 <input type="text" class="form-control" id="cron_url" readonly value="<?= e($cron_url) ?>"
                        aria-describedby="cron_url_help">
-                <div class="form-text" id="cron_url_help"><?= I18N::translate('POST only; the token is never sent in the URL. Each digest is built and sent with the privileges of its own subscriber. A GET on this URL returns the session CSRF token that the POST needs: use the PHP script shipped with the module (bin/wt-reminders-cron.php).') ?></div>
+                <div class="form-text" id="cron_url_help"><?= I18N::translate('POST only; the token is never sent in the URL. Each digest is built and sent with the privileges of its own subscriber. A GET on this URL returns the session CSRF token that the POST needs: use the PHP script shipped with the module (bin/webtrees-reminders-cron.php). Copy this value into the CRON_URL entry of the cron configuration file.') ?></div>
             </div>
         </div>
     <?php endif ?>
+
+    <?php
+    // Sample content of the cron configuration file. It is a plain <pre>, NOT a form
+    // control, so the secret is never part of a form. The token is printed only
+    // once, right after the module generated it; afterwards a marker shows where
+    // it goes.
+    $token_placeholder = '<<< PASTE YOUR CRON TOKEN HERE >>>';
+    $conf_text         = 'CRON_URL="' . $cron_url . '"' . "\n"
+        . 'CRON_TOKEN="' . ($revealed_token !== '' ? $revealed_token : $token_placeholder) . '"';
+    ?>
+    <div class="row mb-4">
+        <div class="col-sm-3 col-form-label" id="cron_conf_label"><?= I18N::translate('Cron configuration file') ?></div>
+        <div class="col-sm-9">
+            <?php if ($revealed_token !== '') : ?>
+                <div class="alert alert-warning" role="alert">
+                    <?= I18N::translate('This token was generated just now and is displayed ONLY ONCE. Copy it now: if you lose it, generate a new one.') ?>
+                </div>
+            <?php endif ?>
+            <pre class="border rounded p-3 mb-2 bg-body-secondary user-select-all" id="cron_conf" aria-labelledby="cron_conf_label"><?= e($conf_text) ?></pre>
+            <div class="form-text">
+                <?= I18N::translate('Save this content as the cron configuration file (see the README for its location on Linux and Windows).') ?>
+                <?php if ($revealed_token === '' && $has_token) : ?>
+                    <?= I18N::translate('For security the token is not displayed again: replace the marked text with the token that was shown when it was generated. If you lost it, generate a new token.') ?>
+                <?php elseif (!$has_token) : ?>
+                    <?= I18N::translate('The token will appear here, once, after you save.') ?>
+                <?php endif ?>
+            </div>
+        </div>
+    </div>
 
     <div class="row mb-4">
         <label class="col-sm-3 col-form-label" for="tree"><?= I18N::translate('Tree') ?></label>
@@ -149,7 +179,7 @@ $mode_labels = [
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="sidebar_user_choice" name="sidebar_user_choice" value="1" <?= $sidebar_user_choice ? 'checked' : '' ?>>
                 <label class="form-check-label" for="sidebar_user_choice">
-                    <?= I18N::translate('Allow members to choose their own display mode on their Reminders page; the mode above is the default.') ?>
+                    <?= I18N::translate('Allow members to choose their own display mode on their Event reminders page; the mode above is the default.') ?>
                 </label>
             </div>
         </div>

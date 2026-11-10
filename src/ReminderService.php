@@ -4,114 +4,79 @@ declare(strict_types=1);
 
 namespace Mitalteli\Webtrees\Util\Reminders;
 
+use Closure;
 use Fisharebest\Webtrees\DB;
+use Fisharebest\Webtrees\Fact;
+use Fisharebest\Webtrees\Family;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\CalendarService;
 use Fisharebest\Webtrees\Services\RelationshipService;
 use Fisharebest\Webtrees\Tree;
+use Throwable;
 
 /**
- * Builds a subscriber's birthday-reminder digest (HTML), or '' if there is
- * nothing to send. Rebuild of the legacy MeranReminders::getOutputHtml on the
- * webtrees 2.x APIs (CalendarService + RelationshipService).
+ * Builds a subscriber's event-reminder digest (HTML), or '' if there is nothing
+ * to send. Events are birthdays and, optionally, wedding anniversaries.
+ * Rebuild of the legacy MeranReminders::getOutputHtml on the webtrees 2.x APIs
+ * (CalendarService + RelationshipService).
  */
 class ReminderService
 {
+    public const TYPE_BIRTHDAY = 'BIRT';
+    public const TYPE_MARRIAGE = 'MARR';
+
     private CalendarService $calendar;
     private ReminderRelationships $relationships;
     private string $view_namespace;
 
+    /** @var Closure(Tree):string Builds the URL of the member's reminder settings page. */
+    private Closure $manage_url;
+
     public function __construct(
         CalendarService $calendar,
         RelationshipService $relationship_service,
-        string $view_namespace
+        string $view_namespace,
+        Closure $manage_url
     ) {
         $this->calendar       = $calendar;
         $this->relationships  = new ReminderRelationships($relationship_service);
         $this->view_namespace = $view_namespace;
+        $this->manage_url     = $manage_url;
     }
 
     /**
      * @return string Rendered HTML digest, or '' if no relevant events.
      */
-    public function digestHtml(Tree $tree, string $xref, int $days_ahead, int $max_distance, bool $include_deceased = false): string
-    {
+    public function digestHtml(
+        Tree $tree,
+        string $xref,
+        int $days_ahead,
+        int $max_distance,
+        bool $include_deceased = false,
+        bool $include_marriages = false
+    ): string {
         $subscriber = Registry::individualFactory()->make($xref, $tree);
 
         if ($subscriber === null) {
             return '';
         }
 
-        // Hard cap: reminders never look more than a week ahead.
+        // Hard cap: reminders never look more than a week ahead. 0 means "same day only".
         $days_ahead = max(0, min(7, $days_ahead));
 
         // 0 == "unlimited" in the legacy settings.
         $effective_max = $max_distance === 0 ? 100 : $max_distance;
         $distances     = $this->relationships->distancesFrom($subscriber, $effective_max);
-
-        // Individually-followed birthdays: these appear REGARDLESS of distance.
-        // Connection failure must never break a digest, so guard it.
-        $followed = [];
-        try {
-            $followed = array_flip((new ReminderFollows())->targets($xref));
-        } catch (\Throwable $e) {
-            $followed = [];
-        }
+        $followed      = $this->followedTargets($xref);
 
         $now      = Registry::timestampFactory()->now();
         $sections = [];
 
         for ($d = 0; $d <= $days_ahead; $d++) {
-            $jd    = $now->addDays($d)->julianDay();
-            // Fetch ALL birthdays (only_living = false). The living-only rule is
-            // applied per-event below: distance-based entries stay living-only,
-            // but explicitly followed people show even if deceased.
-            $facts = $this->calendar->getEventsList($jd, $jd, 'BIRT', false, 'anniv', $tree);
-
-            $events = [];
-
-            foreach ($facts as $fact) {
-                $record = $fact->record();
-
-                if (!$record instanceof Individual) {
-                    continue;
-                }
-
-                $target = $record->xref();
-
-                if ($target === $xref) {
-                    continue; // don't remind someone of their own birthday
-                }
-
-                $within_distance = array_key_exists($target, $distances);
-                $is_followed     = isset($followed[$target]);
-
-                if (!$within_distance && !$is_followed) {
-                    continue; // beyond max_distance and not individually followed
-                }
-
-                // Deceased people are normally suppressed. They appear when the
-                // subscriber has opted to include the deceased in general, OR
-                // when this particular person is explicitly followed.
-                $is_dead = $record->isDead();
-
-                if ($is_dead && !$include_deceased && !$is_followed) {
-                    continue;
-                }
-
-                $events[] = [
-                    'record'       => $record,
-                    'fact'         => $fact,
-                    // Followed-but-distant people sort after the in-range relatives
-                    // for the same day (PHP_INT_MAX), but still appear.
-                    'distance'     => $within_distance ? $distances[$target] : PHP_INT_MAX,
-                    'followed'     => $is_followed,
-                    'deceased'     => $is_dead,
-                    'relationship' => $this->relationships->smartLabel($subscriber, $record),
-                ];
-            }
+            $jd     = $now->addDays($d)->julianDay();
+            $events = $this->eventsOn($tree, $subscriber, $distances, $followed, $include_deceased, $include_marriages, $jd);
 
             if ($events === []) {
                 continue;
@@ -131,27 +96,34 @@ class ReminderService
         }
 
         return view($this->view_namespace . '::email-digest', [
-            'tree'             => $tree,
-            'sections'         => $sections,
-            'days_ahead'       => $days_ahead,
-            'max_distance'     => $max_distance,
-            'include_deceased' => $include_deceased,
-            'user_emails'      => self::accountEmails($tree),
+            'tree'              => $tree,
+            'sections'          => $sections,
+            'days_ahead'        => $days_ahead,
+            'max_distance'      => $max_distance,
+            'include_deceased'  => $include_deceased,
+            'include_marriages' => $include_marriages,
+            'user_emails'       => self::accountEmails($tree),
+            'manage_url'        => ($this->manage_url)($tree),
         ]);
     }
 
     /**
-     * Upcoming birthdays for the settings page: the SAME selection the daily
-     * digest uses (distance filter + individually-followed people + the
-     * deceased rule), but looking ahead a calendar month instead of the email's
-     * <=7-day window. Returns a flat, day-ordered list of display rows so the
-     * settings view can group them by date. This is a read-only preview — it
-     * builds nothing and sends nothing.
+     * Upcoming events for the settings page: the SAME selection the daily digest
+     * uses (distance filter + followed people + the deceased rule + the wedding
+     * option), but looking ahead a calendar month instead of the email's <=7-day
+     * window. Returns a flat, day-ordered list of display rows so the settings
+     * view can group them by date. Read-only: it builds nothing and sends nothing.
      *
-     * @return array<int,array{xref:string,name:string,relationship:string,distance:int,followed:bool,deceased:bool,days:int,date_label:string,age:int|null,url:string}>
+     * @return array<int,array<string,mixed>>
      */
-    public function upcomingBirthdays(Tree $tree, string $xref, int $max_distance, bool $include_deceased, int $horizon_days = 31): array
-    {
+    public function upcomingEvents(
+        Tree $tree,
+        string $xref,
+        int $max_distance,
+        bool $include_deceased,
+        bool $include_marriages,
+        int $horizon_days = 31
+    ): array {
         $subscriber = Registry::individualFactory()->make($xref, $tree);
 
         if ($subscriber === null) {
@@ -163,13 +135,7 @@ class ReminderService
         // 0 == "unlimited" — same convention as the digest.
         $effective_max = $max_distance === 0 ? 100 : $max_distance;
         $distances     = $this->relationships->distancesFrom($subscriber, $effective_max);
-
-        $followed = [];
-        try {
-            $followed = array_flip((new ReminderFollows())->targets($xref));
-        } catch (\Throwable $e) {
-            $followed = [];
-        }
+        $followed      = $this->followedTargets($xref);
 
         $now  = Registry::timestampFactory()->now();
         $rows = [];
@@ -178,60 +144,26 @@ class ReminderService
         // its "in N days" countdown — is exact, and the data source is identical
         // to the email (CalendarService anniversaries).
         for ($d = 0; $d <= $horizon_days; $d++) {
-            $when  = $now->addDays($d);
-            $jd    = $when->julianDay();
-            $facts = $this->calendar->getEventsList($jd, $jd, 'BIRT', false, 'anniv', $tree);
+            $when   = $now->addDays($d);
+            $events = $this->eventsOn($tree, $subscriber, $distances, $followed, $include_deceased, $include_marriages, $when->julianDay());
 
-            foreach ($facts as $fact) {
-                $record = $fact->record();
-
-                if (!$record instanceof Individual) {
-                    continue;
-                }
-
-                $target = $record->xref();
-
-                if ($target === $xref) {
-                    continue;
-                }
-
-                $within_distance = array_key_exists($target, $distances);
-                $is_followed     = isset($followed[$target]);
-
-                if (!$within_distance && !$is_followed) {
-                    continue;
-                }
-
-                $is_dead = $record->isDead();
-
-                if ($is_dead && !$include_deceased && !$is_followed) {
-                    continue;
-                }
-
-                // Age they will turn on that birthday (would-be age for the dead).
-                $age   = null;
-                $birth = $record->getBirthDate();
-
-                if ($birth->isOK()) {
-                    $birth_year = (int) $birth->minimumDate()->year;
-
-                    if ($birth_year > 0) {
-                        $maybe = (int) $when->isoFormat('YYYY') - $birth_year;
-                        $age   = $maybe >= 0 ? $maybe : null;
-                    }
-                }
+            foreach ($events as $event) {
+                $years = (int) $event['fact']->anniv;
 
                 $rows[] = [
-                    'xref'         => $target,
-                    'name'         => self::displayName($record),
-                    'relationship' => $this->relationships->smartLabel($subscriber, $record),
-                    'distance'     => $within_distance ? $distances[$target] : PHP_INT_MAX,
-                    'followed'     => $is_followed,
-                    'deceased'     => $is_dead,
-                    'days'         => $d,
-                    'date_label'   => $when->isoFormat('D MMM'),
-                    'age'          => $age,
-                    'url'          => $record->url(),
+                    'type'          => $event['type'],
+                    'xref'          => $event['record']->xref(),
+                    'name'          => $event['name'],
+                    'relationship'  => $event['relationship'],
+                    'distance'      => $event['distance'],
+                    'followed'      => $event['followed'],
+                    'deceased'      => $event['deceased'],
+                    'days'          => $d,
+                    'date_label'    => $when->isoFormat('D MMM'),
+                    // The date of the original event (birth or marriage) the entry comes from.
+                    'original_date' => $event['original_date'],
+                    'age'           => $years > 0 ? $years : null,
+                    'url'           => $event['record']->url(),
                 ];
             }
         }
@@ -240,6 +172,165 @@ class ReminderService
         usort($rows, static fn (array $a, array $b): int => [$a['days'], $a['distance']] <=> [$b['days'], $b['distance']]);
 
         return $rows;
+    }
+
+    /**
+     * XREFs of the individually-followed people (birthdays only). A database
+     * failure must never break a digest, so it is swallowed.
+     *
+     * @return array<string,int>
+     */
+    private function followedTargets(string $xref): array
+    {
+        try {
+            return array_flip((new ReminderFollows())->targets($xref));
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Every event that falls on one calendar day and passes the subscriber's filters.
+     *
+     * Birthdays: shown when the person is within the distance limit or followed;
+     * the deceased only when opted in (or followed). Wedding anniversaries (only
+     * when $include_marriages): shown when at least one spouse is within the
+     * distance limit; suppressed when every known spouse is deceased, unless the
+     * subscriber opted in to deceased people. Following a person affects birthdays only.
+     * The subscriber's own birthday/wedding is never listed.
+     *
+     * @param array<string,int> $distances
+     * @param array<string,int> $followed
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function eventsOn(
+        Tree $tree,
+        Individual $subscriber,
+        array $distances,
+        array $followed,
+        bool $include_deceased,
+        bool $include_marriages,
+        int $jd
+    ): array {
+        $xref   = $subscriber->xref();
+        $events = [];
+
+        // Fetch ALL birthdays (only_living = false): the living-only rule is
+        // applied per event below, so explicitly followed people still show.
+        foreach ($this->calendar->getEventsList($jd, $jd, 'BIRT', false, 'anniv', $tree) as $fact) {
+            $record = $fact->record();
+
+            if (!$record instanceof Individual) {
+                continue;
+            }
+
+            $target = $record->xref();
+
+            if ($target === $xref) {
+                continue; // don't remind someone of their own birthday
+            }
+
+            $within_distance = array_key_exists($target, $distances);
+            $is_followed     = isset($followed[$target]);
+
+            if (!$within_distance && !$is_followed) {
+                continue; // beyond max_distance and not individually followed
+            }
+
+            $is_dead = $record->isDead();
+
+            if ($is_dead && !$include_deceased && !$is_followed) {
+                continue;
+            }
+
+            $events[] = [
+                'type'          => self::TYPE_BIRTHDAY,
+                'record'        => $record,
+                'fact'          => $fact,
+                'name'          => self::displayName($record),
+                // Followed-but-distant people sort after the in-range relatives
+                // for the same day (PHP_INT_MAX), but still appear.
+                'distance'      => $within_distance ? $distances[$target] : PHP_INT_MAX,
+                'followed'      => $is_followed,
+                'deceased'      => $is_dead,
+                'relationship'  => $this->relationships->smartLabel($subscriber, $record),
+                'original_date' => $this->originalDate($fact, $tree),
+            ];
+        }
+
+        if (!$include_marriages) {
+            return $events;
+        }
+
+        foreach ($this->calendar->getEventsList($jd, $jd, 'MARR', false, 'anniv', $tree) as $fact) {
+            $record = $fact->record();
+
+            if (!$record instanceof Family) {
+                continue;
+            }
+
+            $spouses = array_values(array_filter([$record->husband(), $record->wife()]));
+
+            if ($spouses === []) {
+                continue;
+            }
+
+            $in_range  = [];
+            $names     = [];
+            $labels    = [];
+            $all_dead  = true;
+            $is_self   = false;
+
+            foreach ($spouses as $spouse) {
+                if ($spouse->xref() === $xref) {
+                    $is_self = true;
+                }
+
+                if (array_key_exists($spouse->xref(), $distances)) {
+                    $in_range[] = $distances[$spouse->xref()];
+                }
+
+                $names[] = self::displayName($spouse);
+                $label   = $this->relationships->smartLabel($subscriber, $spouse);
+
+                if ($label !== '') {
+                    $labels[$label] = $label;
+                }
+
+                if (!$spouse->isDead()) {
+                    $all_dead = false;
+                }
+            }
+
+            if ($is_self || $in_range === []) {
+                continue;
+            }
+
+            if ($all_dead && !$include_deceased) {
+                continue;
+            }
+
+            $events[] = [
+                'type'          => self::TYPE_MARRIAGE,
+                'record'        => $record,
+                'fact'          => $fact,
+                'name'          => implode(' & ', $names),
+                'distance'      => min($in_range),
+                'followed'      => false,
+                'deceased'      => $all_dead,
+                'relationship'  => implode(' & ', $labels),
+                'original_date' => $this->originalDate($fact, $tree),
+            ];
+        }
+
+        return $events;
+    }
+
+    /** The date of the original event as plain text (no markup). */
+    private function originalDate(Fact $fact, Tree $tree): string
+    {
+        return trim(strip_tags($fact->date()->display($tree, null, true)));
     }
 
     /** @var array<string,string>|null xref => linked account email; cached per request. */

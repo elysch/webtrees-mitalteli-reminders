@@ -1,0 +1,14 @@
+# Cron configuration of the webtrees "Event reminders" module.
+#
+# Linux/macOS: save as /etc/webtrees-reminders-cron.conf, owned by the user that
+#              runs the cron, mode 600.
+# Windows:     save as %APPDATA%\webtrees-reminders-cron.conf of the user that runs
+#              the scheduled task and restrict it with icacls (see the README).
+#
+# Read (never executed) by bin/webtrees-reminders-cron.php.
+#
+# CRON_URL:   copy the value of "Cron endpoint" from Control panel > Modules >
+#             Event reminders (wrench icon). Do not build it by hand.
+# CRON_TOKEN: the token the module settings page displays ONCE, when it generates it.
+CRON_URL="https://example.com/webtrees/index.php?route=/module/_mitalteli-reminders_/Cron"
+CRON_TOKEN="<<< PASTE YOUR CRON TOKEN HERE >>>"

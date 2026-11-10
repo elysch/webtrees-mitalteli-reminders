@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Mitalteli\Webtrees\Util\Reminders;
 
-use Fig\Http\Message\RequestMethodInterface;
 use Fig\Http\Message\StatusCodeInterface;
 use Fisharebest\Webtrees\Module\AbstractModule;
 use Fisharebest\Webtrees\Module\ModuleCustomTrait;
@@ -36,7 +35,6 @@ use Fisharebest\Webtrees\Services\RelationshipService;
 use Fisharebest\Webtrees\Services\UserService;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Psr\Http\Server\RequestHandlerInterface;
 use Throwable;
 
 require_once __DIR__ . '/ReminderSchema.php';
@@ -52,13 +50,19 @@ use Mitalteli\Webtrees\Util\Reminders\ReminderSettings;
 use Mitalteli\Webtrees\Util\Reminders\ReminderRelationships;
 
 /**
- * A birthday-reminder module for webtrees.
+ * An event-reminder module (birthdays and wedding anniversaries) for webtrees.
  *
- * SAFETY: boot() registers routes + the view namespace ONLY. Every fragile
- * operation (DB, relationship BFS, mail) runs inside a per-request handler, so
- * a failure can only break this module's own page — never the whole site.
+ * SAFETY: boot() registers the view namespace ONLY. Every fragile operation
+ * (DB, relationship BFS, mail) runs inside a per-request handler, so a failure
+ * can only break this module's own page — never the whole site.
+ *
+ * ROUTING: the module registers no routes of its own. Every page is a module
+ * action served by webtrees' built-in module route
+ * (/module/{module}/{action}[/{tree}] -> get<Action>Action / post<Action>Action),
+ * which is the part of the routing API that is stable across webtrees 2.2 and 2.3
+ * (the route-registration API itself changes in 2.3).
  */
-class RemindersModule extends AbstractModule implements ModuleCustomInterface, ModuleMenuInterface, ModuleSidebarInterface, RequestHandlerInterface, ModuleConfigInterface
+class RemindersModule extends AbstractModule implements ModuleCustomInterface, ModuleMenuInterface, ModuleSidebarInterface, ModuleConfigInterface
 {
     use ModuleCustomTrait;
     use ModuleMenuTrait;
@@ -68,37 +72,29 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
     use ReminderSettings;
     use ReminderCron;
 
-    protected const ROUTE_URL  = '/tree/{tree}/reminders';
-    protected const ROUTE_CRON = '/reminders-cron';
+    /** Sorts the module next to the author's other modules in the module list. */
+    private const TITLE_PREFIX = "\u{2696} ";
 
     // Tree used by the (guest-accessible, tree-less) cron route. Empty means
     // "use the first/only tree" — see resolveTree().
     private const DEFAULT_TREE = '';
 
     /**
-     * Register routes and the view namespace. Nothing else may live here.
+     * Register the view namespace. Nothing else may live here.
      */
     public function boot(): void
     {
-        $router = Registry::routeFactory()->routeMap();
-
-        $router->get(static::class, static::ROUTE_URL, $this);
-        $router->post(static::class . ':save', static::ROUTE_URL, $this);
-        $router->get(static::class . ':cron', static::ROUTE_CRON, $this);
-        $router->post(static::class . ':cronpost', static::ROUTE_CRON, $this);
-        $router->allows(RequestMethodInterface::METHOD_POST);
-
         View::registerNamespace($this->name(), $this->resourcesFolder() . 'views/');
     }
 
     public function title(): string
     {
-        return I18N::translate('Reminders');
+        return self::TITLE_PREFIX . I18N::translate('Event reminders');
     }
 
     public function description(): string
     {
-        return I18N::translate('Birthday reminders for relatives in the family tree based on the work made by jbh4x82 at https://github.com/jbh4x82/wt_reminders.');
+        return I18N::translate('Event reminders (birthdays and wedding anniversaries) for relatives in the family tree, based on the work made by jbh4x82 at https://github.com/jbh4x82/wt_reminders.');
     }
 
     public function resourcesFolder(): string
@@ -122,266 +118,60 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
     }
 
     /**
-     * Digest strings in the common family languages. The cron calls I18N::init()
-     * with each subscriber's language before rendering, and webtrees merges these
-     * into the active translator (see I18N::init -> customTranslations). Languages
-     * outside this set fall back to the English source strings (core content —
-     * dates, relationship labels — still localises for any webtrees language).
+     * URL of one of this module's actions, through webtrees' built-in module route.
+     *
+     * @param array<string,string> $parameters
+     */
+    public function moduleUrl(string $action, array $parameters = []): string
+    {
+        return route('module', ['module' => $this->name(), 'action' => $action] + $parameters);
+    }
+
+    /** The member's reminder settings page (also the POST target of the follow toggle). */
+    public function editUrl(Tree $tree): string
+    {
+        return $this->moduleUrl('Edit', ['tree' => $tree->name()]);
+    }
+
+    /** The follow-a-person autocomplete (JSON). */
+    public function searchUrl(Tree $tree): string
+    {
+        return $this->moduleUrl('Search', ['tree' => $tree->name()]);
+    }
+
+    /**
+     * Translations live in resources/lang/<language>.php (one file per language,
+     * e.g. ca, de, es, fr, it, nl). The cron calls I18N::init() with each
+     * subscriber's language before rendering, and webtrees merges these into the
+     * active translator (see I18N::init -> customTranslations). A regional tag
+     * such as "fr-CA" falls back to its primary language; languages without a
+     * file fall back to the English source strings (core content — dates,
+     * relationship labels — still localises for any webtrees language).
      *
      * @return array<string,string>
      */
     public function customTranslations(string $language): array
     {
-        $primary = strtolower(substr($language, 0, 2));
+        $language = str_replace('_', '-', $language);
 
-        $catalogue = [
-            'de' => [
-                'Birthdays'                                    => 'Geburtstage',
-                'Reminders'                                    => 'Geburtstage',
-                'Today'                                        => 'Heute',
-                'Tomorrow'                                     => 'Morgen',
-                'Send birthday email'                          => 'Geburtstags-E-Mail senden',
-                'Happy birthday'                               => 'Alles Gute zum Geburtstag',
-                'year'                                         => 'Jahr',
-                'years'                                        => 'Jahre',
-                'Your current settings'                        => 'Ihre aktuellen Einstellungen',
-                'Maximum distance to relative'                 => 'Maximaler Verwandtschaftsabstand',
-                'Unlimited'                                    => 'Unbegrenzt',
-                'Notifications: %s day ahead'                  => 'Benachrichtigungen: %s Tag im Voraus',
-                'Notifications: %s days ahead'                 => 'Benachrichtigungen: %s Tage im Voraus',
-                'Manage your birthday reminder subscriptions'  => 'Geburtstagserinnerungen verwalten',
-                'Relationship to you'                          => 'Verwandtschaft zu dir',
-                'Show full relationship'                       => 'Vollständige Verwandtschaft anzeigen',
-                'This is your own profile.'                    => 'Das ist dein eigenes Profil.',
-                'Remind me of this birthday'                   => 'An diesen Geburtstag erinnern',
-                'Stop reminding me'                            => 'Erinnerung beenden',
-                'You will be reminded of this birthday.'       => 'Du wirst an diesen Geburtstag erinnert.',
-                'Manage all reminders'                         => 'Alle Erinnerungen verwalten',
-                'Followed'                                     => 'Abonniert',
-                'People you follow'                            => 'Personen, denen du folgst',
-                'Always remind me of these birthdays, no matter how distant the relative.' => 'Erinnere mich immer an diese Geburtstage, egal wie entfernt verwandt.',
-                'Search for a person by name'                  => 'Person nach Namen suchen',
-                'Follow'                                       => 'Folgen',
-                'Following'                                    => 'Abonniert',
-                'Remove'                                       => 'Entfernen',
-                'You are not following anyone yet.'            => 'Du folgst noch niemandem.',
-                'No matches found.'                            => 'Keine Treffer gefunden.',
-                'Include birthdays of deceased people'        => 'Geburtstage Verstorbener einschließen',
-                'Including birthdays of deceased people'       => 'Geburtstage Verstorbener werden einbezogen',
-                'Deceased'                                     => 'Verstorben',
-                'today'                                        => 'heute',
-                'tomorrow'                                     => 'morgen',
-                'in %s day'                                    => 'in %s Tag',
-                'in %s days'                                   => 'in %s Tagen',
-                '%s year old'                                  => '%s Jahr alt',
-                '%s years old'                                 => '%s Jahre alt',
-                'Upcoming birthdays'                           => 'Bevorstehende Geburtstage',
-                'Birthdays in the next month, based on your settings above.' => 'Geburtstage im nächsten Monat, basierend auf deinen Einstellungen oben.',
-                'No upcoming birthdays in the next month.'     => 'Keine Geburtstage im nächsten Monat.',
-                'Days ahead'                                   => 'Tage im Voraus',
-                'Save'                                         => 'Speichern',
-                'Subscribe'                                    => 'Abonnieren',
-                'Unsubscribe'                                  => 'Abbestellen',
-                'You are subscribed to birthday reminders.'    => 'Du hast die Geburtstagserinnerungen abonniert.',
-                'You are not currently subscribed to birthday reminders.' => 'Du hast die Geburtstagserinnerungen derzeit nicht abonniert.',
-                'Your account is not linked to a person in this family tree, so birthday reminders cannot be set up. Please ask an administrator to link your account.' => 'Dein Konto ist mit keiner Person in diesem Stammbaum verknüpft, daher können keine Geburtstagserinnerungen eingerichtet werden. Bitte bitte einen Administrator, dein Konto zu verknüpfen.',
-                'Children, parents and siblings'               => 'Kinder, Eltern und Geschwister',
-                'Grandparents/children, aunts/uncles'          => 'Großeltern/-kinder, Tanten/Onkel',
-                'First cousins (incl. spouses)'                => 'Cousins ersten Grades (inkl. Ehepartner)',
-                'First cousins and their children'             => 'Cousins ersten Grades und deren Kinder',
-                'Second cousins (incl. spouses)'               => 'Cousins zweiten Grades (inkl. Ehepartner)',
-                'Second cousins and their children'            => 'Cousins zweiten Grades und deren Kinder',
-                'Third cousins (incl. spouses)'                => 'Cousins dritten Grades (inkl. Ehepartner)',
-                'Third cousins and their children'             => 'Cousins dritten Grades und deren Kinder',
-                'Fourth cousins (incl. spouses)'               => 'Cousins vierten Grades (inkl. Ehepartner)',
-                'Fourth cousins and their children'            => 'Cousins vierten Grades und deren Kinder',
-            ],
-            'fr' => [
-                'Birthdays'                                    => 'Anniversaires',
-                'Reminders'                                    => 'Anniversaires',
-                'Today'                                        => "Aujourd'hui",
-                'Tomorrow'                                     => 'Demain',
-                'Send birthday email'                          => "Envoyer un e-mail d'anniversaire",
-                'Happy birthday'                               => 'Joyeux anniversaire',
-                'year'                                         => 'an',
-                'years'                                        => 'ans',
-                'Your current settings'                        => 'Vos paramètres actuels',
-                'Maximum distance to relative'                 => 'Distance maximale de parenté',
-                'Unlimited'                                    => 'Illimitée',
-                'Notifications: %s day ahead'                  => "Notifications : %s jour à l'avance",
-                'Notifications: %s days ahead'                 => "Notifications : %s jours à l'avance",
-                'Manage your birthday reminder subscriptions'  => "Gérer vos rappels d'anniversaire",
-                'Relationship to you'                          => 'Lien de parenté avec vous',
-                'Show full relationship'                       => 'Afficher la parenté complète',
-                'This is your own profile.'                    => 'Ceci est votre propre profil.',
-                'Remind me of this birthday'                   => 'Me rappeler cet anniversaire',
-                'Stop reminding me'                            => 'Ne plus me le rappeler',
-                'You will be reminded of this birthday.'       => 'Vous serez informé de cet anniversaire.',
-                'Manage all reminders'                         => 'Gérer tous les rappels',
-                'Followed'                                     => 'Suivi',
-                'People you follow'                            => 'Personnes que vous suivez',
-                'Always remind me of these birthdays, no matter how distant the relative.' => 'Rappelez-moi toujours ces anniversaires, quelle que soit la distance de parenté.',
-                'Search for a person by name'                  => 'Rechercher une personne par son nom',
-                'Follow'                                       => 'Suivre',
-                'Following'                                    => 'Suivi',
-                'Remove'                                       => 'Retirer',
-                'You are not following anyone yet.'            => "Vous ne suivez encore personne.",
-                'No matches found.'                            => 'Aucun résultat trouvé.',
-                'Include birthdays of deceased people'        => 'Inclure les anniversaires des personnes décédées',
-                'Including birthdays of deceased people'       => 'Les anniversaires des personnes décédées sont inclus',
-                'Deceased'                                     => 'Décédé(e)',
-                'today'                                        => "aujourd'hui",
-                'tomorrow'                                     => 'demain',
-                'in %s day'                                    => 'dans %s jour',
-                'in %s days'                                   => 'dans %s jours',
-                '%s year old'                                  => '%s an',
-                '%s years old'                                 => '%s ans',
-                'Upcoming birthdays'                           => 'Anniversaires à venir',
-                'Birthdays in the next month, based on your settings above.' => 'Anniversaires du mois à venir, selon vos paramètres ci-dessus.',
-                'No upcoming birthdays in the next month.'     => 'Aucun anniversaire le mois prochain.',
-                'Days ahead'                                   => "Jours à l'avance",
-                'Save'                                         => 'Enregistrer',
-                'Subscribe'                                    => "S'abonner",
-                'Unsubscribe'                                  => 'Se désabonner',
-                'You are subscribed to birthday reminders.'    => "Vous êtes abonné(e) aux rappels d'anniversaire.",
-                'You are not currently subscribed to birthday reminders.' => "Vous n'êtes pas actuellement abonné(e) aux rappels d'anniversaire.",
-                'Your account is not linked to a person in this family tree, so birthday reminders cannot be set up. Please ask an administrator to link your account.' => "Votre compte n'est lié à aucune personne de cet arbre généalogique ; les rappels d'anniversaire ne peuvent donc pas être configurés. Veuillez demander à un administrateur de lier votre compte.",
-                'Children, parents and siblings'               => 'Enfants, parents, frères et sœurs',
-                'Grandparents/children, aunts/uncles'          => 'Grands-parents/petits-enfants, oncles/tantes',
-                'First cousins (incl. spouses)'                => 'Cousins germains (conjoints inclus)',
-                'First cousins and their children'             => 'Cousins germains et leurs enfants',
-                'Second cousins (incl. spouses)'               => 'Cousins issus de germains (conjoints inclus)',
-                'Second cousins and their children'            => 'Cousins issus de germains et leurs enfants',
-                'Third cousins (incl. spouses)'                => 'Cousins au troisième degré (conjoints inclus)',
-                'Third cousins and their children'             => 'Cousins au troisième degré et leurs enfants',
-                'Fourth cousins (incl. spouses)'               => 'Cousins au quatrième degré (conjoints inclus)',
-                'Fourth cousins and their children'            => 'Cousins au quatrième degré et leurs enfants',
-            ],
-            'it' => [
-                'Birthdays'                                    => 'Compleanni',
-                'Reminders'                                    => 'Compleanni',
-                'Today'                                        => 'Oggi',
-                'Tomorrow'                                     => 'Domani',
-                'Send birthday email'                          => 'Invia email di auguri',
-                'Happy birthday'                               => 'Buon compleanno',
-                'year'                                         => 'anno',
-                'years'                                        => 'anni',
-                'Your current settings'                        => 'Le tue impostazioni attuali',
-                'Maximum distance to relative'                 => 'Distanza massima di parentela',
-                'Unlimited'                                    => 'Illimitata',
-                'Notifications: %s day ahead'                  => 'Notifiche: %s giorno in anticipo',
-                'Notifications: %s days ahead'                 => 'Notifiche: %s giorni in anticipo',
-                'Manage your birthday reminder subscriptions'  => 'Gestisci i promemoria dei compleanni',
-                'Relationship to you'                          => 'Parentela con te',
-                'Show full relationship'                       => 'Mostra la parentela completa',
-                'This is your own profile.'                    => 'Questo è il tuo profilo.',
-                'Remind me of this birthday'                   => 'Ricordami questo compleanno',
-                'Stop reminding me'                            => 'Smetti di ricordarmelo',
-                'You will be reminded of this birthday.'       => 'Ti ricorderemo questo compleanno.',
-                'Manage all reminders'                         => 'Gestisci tutti i promemoria',
-                'Followed'                                     => 'Seguito',
-                'People you follow'                            => 'Persone che segui',
-                'Always remind me of these birthdays, no matter how distant the relative.' => 'Ricordami sempre questi compleanni, indipendentemente dal grado di parentela.',
-                'Search for a person by name'                  => 'Cerca una persona per nome',
-                'Follow'                                       => 'Segui',
-                'Following'                                    => 'Seguito',
-                'Remove'                                       => 'Rimuovi',
-                'You are not following anyone yet.'            => 'Non segui ancora nessuno.',
-                'No matches found.'                            => 'Nessun risultato trovato.',
-                'Include birthdays of deceased people'        => 'Includi i compleanni delle persone decedute',
-                'Including birthdays of deceased people'       => 'I compleanni delle persone decedute sono inclusi',
-                'Deceased'                                     => 'Deceduto/a',
-                'today'                                        => 'oggi',
-                'tomorrow'                                     => 'domani',
-                'in %s day'                                    => 'tra %s giorno',
-                'in %s days'                                   => 'tra %s giorni',
-                '%s year old'                                  => '%s anno',
-                '%s years old'                                 => '%s anni',
-                'Upcoming birthdays'                           => 'Compleanni in arrivo',
-                'Birthdays in the next month, based on your settings above.' => 'Compleanni del prossimo mese, in base alle tue impostazioni qui sopra.',
-                'No upcoming birthdays in the next month.'     => 'Nessun compleanno nel prossimo mese.',
-                'Days ahead'                                   => 'Giorni in anticipo',
-                'Save'                                         => 'Salva',
-                'Subscribe'                                    => 'Iscriviti',
-                'Unsubscribe'                                  => 'Annulla iscrizione',
-                'You are subscribed to birthday reminders.'    => 'Sei iscritto ai promemoria dei compleanni.',
-                'You are not currently subscribed to birthday reminders.' => 'Al momento non sei iscritto ai promemoria dei compleanni.',
-                'Your account is not linked to a person in this family tree, so birthday reminders cannot be set up. Please ask an administrator to link your account.' => 'Il tuo account non è collegato a nessuna persona di questo albero genealogico, quindi non è possibile impostare i promemoria dei compleanni. Chiedi a un amministratore di collegare il tuo account.',
-                'Children, parents and siblings'               => 'Figli, genitori e fratelli/sorelle',
-                'Grandparents/children, aunts/uncles'          => 'Nonni/nipoti, zii/zie',
-                'First cousins (incl. spouses)'                => 'Cugini di primo grado (coniugi inclusi)',
-                'First cousins and their children'             => 'Cugini di primo grado e i loro figli',
-                'Second cousins (incl. spouses)'               => 'Cugini di secondo grado (coniugi inclusi)',
-                'Second cousins and their children'            => 'Cugini di secondo grado e i loro figli',
-                'Third cousins (incl. spouses)'                => 'Cugini di terzo grado (coniugi inclusi)',
-                'Third cousins and their children'             => 'Cugini di terzo grado e i loro figli',
-                'Fourth cousins (incl. spouses)'               => 'Cugini di quarto grado (coniugi inclusi)',
-                'Fourth cousins and their children'            => 'Cugini di quarto grado e i loro figli',
-            ],
-            'es' => [
-                'Birthdays'                                    => 'Cumpleaños',
-                'Reminders'                                    => 'Cumpleaños',
-                'Today'                                        => 'Hoy',
-                'Tomorrow'                                     => 'Mañana',
-                'Send birthday email'                          => 'Enviar correo de cumpleaños',
-                'Happy birthday'                               => 'Feliz cumpleaños',
-                'year'                                         => 'año',
-                'years'                                        => 'años',
-                'Your current settings'                        => 'Tu configuración actual',
-                'Maximum distance to relative'                 => 'Distancia máxima de parentesco',
-                'Unlimited'                                    => 'Ilimitada',
-                'Notifications: %s day ahead'                  => 'Notificaciones: %s día de antelación',
-                'Notifications: %s days ahead'                 => 'Notificaciones: %s días de antelación',
-                'Manage your birthday reminder subscriptions'  => 'Gestiona tus recordatorios de cumpleaños',
-                'Relationship to you'                          => 'Parentesco contigo',
-                'Show full relationship'                       => 'Mostrar el parentesco completo',
-                'This is your own profile.'                    => 'Este es tu propio perfil.',
-                'Remind me of this birthday'                   => 'Recordarme este cumpleaños',
-                'Stop reminding me'                            => 'Dejar de recordármelo',
-                'You will be reminded of this birthday.'       => 'Te recordaremos este cumpleaños.',
-                'Manage all reminders'                         => 'Gestionar todos los recordatorios',
-                'Followed'                                     => 'Seguido',
-                'People you follow'                            => 'Personas que sigues',
-                'Always remind me of these birthdays, no matter how distant the relative.' => 'Recuérdame siempre estos cumpleaños, sin importar el grado de parentesco.',
-                'Search for a person by name'                  => 'Buscar una persona por su nombre',
-                'Follow'                                       => 'Seguir',
-                'Following'                                    => 'Siguiendo',
-                'Remove'                                       => 'Quitar',
-                'You are not following anyone yet.'            => 'Todavía no sigues a nadie.',
-                'No matches found.'                            => 'No se encontraron resultados.',
-                'Include birthdays of deceased people'        => 'Incluir cumpleaños de personas fallecidas',
-                'Including birthdays of deceased people'       => 'Se incluyen los cumpleaños de personas fallecidas',
-                'Deceased'                                     => 'Fallecido/a',
-                'today'                                        => 'hoy',
-                'tomorrow'                                     => 'mañana',
-                'in %s day'                                    => 'en %s día',
-                'in %s days'                                   => 'en %s días',
-                '%s year old'                                  => '%s año',
-                '%s years old'                                 => '%s años',
-                'Upcoming birthdays'                           => 'Próximos cumpleaños',
-                'Birthdays in the next month, based on your settings above.' => 'Cumpleaños del próximo mes, según tu configuración de arriba.',
-                'No upcoming birthdays in the next month.'     => 'No hay cumpleaños el próximo mes.',
-                'Days ahead'                                   => 'Días de antelación',
-                'Save'                                         => 'Guardar',
-                'Subscribe'                                    => 'Suscribirse',
-                'Unsubscribe'                                  => 'Cancelar suscripción',
-                'You are subscribed to birthday reminders.'    => 'Estás suscrito a los recordatorios de cumpleaños.',
-                'You are not currently subscribed to birthday reminders.' => 'Actualmente no estás suscrito a los recordatorios de cumpleaños.',
-                'Your account is not linked to a person in this family tree, so birthday reminders cannot be set up. Please ask an administrator to link your account.' => 'Tu cuenta no está vinculada a ninguna persona de este árbol genealógico, por lo que no se pueden configurar los recordatorios de cumpleaños. Pide a un administrador que vincule tu cuenta.',
-                'Children, parents and siblings'               => 'Hijos, padres y hermanos',
-                'Grandparents/children, aunts/uncles'          => 'Abuelos/nietos, tíos/tías',
-                'First cousins (incl. spouses)'                => 'Primos hermanos (cónyuges incl.)',
-                'First cousins and their children'             => 'Primos hermanos y sus hijos',
-                'Second cousins (incl. spouses)'               => 'Primos segundos (cónyuges incl.)',
-                'Second cousins and their children'            => 'Primos segundos y sus hijos',
-                'Third cousins (incl. spouses)'                => 'Primos terceros (cónyuges incl.)',
-                'Third cousins and their children'             => 'Primos terceros y sus hijos',
-                'Fourth cousins (incl. spouses)'               => 'Primos cuartos (cónyuges incl.)',
-                'Fourth cousins and their children'            => 'Primos cuartos y sus hijos',
-            ],
-        ];
+        foreach ([$language, strtolower(substr($language, 0, 2))] as $code) {
+            // The tag ends up in a file name: accept only a plain language tag.
+            if (preg_match('/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$/', $code) !== 1) {
+                continue;
+            }
 
-        return array_merge($catalogue[$primary] ?? [], $this->reminderAdminTranslations($primary));
+            $file = $this->resourcesFolder() . 'lang/' . $code . '.php';
+
+            if (is_file($file)) {
+                $translations = require $file;
+
+                if (is_array($translations)) {
+                    return $translations;
+                }
+            }
+        }
+
+        return [];
     }
 
     /**
@@ -426,7 +216,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
 
         return new Menu(
             $this->title(),
-            route(static::class, ['tree' => $tree->name()]),
+            $this->editUrl($tree),
             'menu-reminders',
             ['rel' => 'nofollow']
         );
@@ -552,8 +342,8 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
                 'birthday'         => $is_self ? '' : $this->birthdayLabel($individual),
                 'bio'              => $bio,
                 'wiki'             => $wiki,
-                'action_url'       => route(static::class, ['tree' => $tree->name()]),
-                'manage_url'       => route(static::class, ['tree' => $tree->name()]),
+                'action_url'       => $this->editUrl($tree),
+                'manage_url'       => $this->editUrl($tree),
                 'csrf'             => csrf_token(),
             ], $this->sidebarModeFor($user));
         } catch (Throwable $e) {
@@ -585,35 +375,9 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
     }
 
     /**
-     * Single entry point. Dispatch on path + method so we never depend on the
-     * router's internal route-name API.
+     * The member's settings page (module action "Edit", GET).
      */
-    public function handle(ServerRequestInterface $request): ResponseInterface
-    {
-        // The matched route arrives either in the "route" query param
-        // (index.php?route=/...) or in the URI path (pretty URLs). Check both.
-        $route = (string) ($request->getQueryParams()['route'] ?? $request->getUri()->getPath());
-
-        if (str_contains($route, 'reminders-cron')) {
-            return $this->handleCronRequest($request);
-        }
-
-        if ($request->getMethod() === RequestMethodInterface::METHOD_POST) {
-            return $this->handleSave($request);
-        }
-
-        // GET ?search=1&q=… is the follow-people autocomplete (returns JSON).
-        if (isset($request->getQueryParams()['search'])) {
-            return $this->handleSearch($request);
-        }
-
-        return $this->handleEdit($request);
-    }
-
-    /**
-     * Show the current user's subscription settings.
-     */
-    private function handleEdit(ServerRequestInterface $request): ResponseInterface
+    public function getEditAction(ServerRequestInterface $request): ResponseInterface
     {
         $tree = Validator::attributes($request)->tree();
         $user = Auth::user();
@@ -653,7 +417,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
             'xref'         => $xref,
             'subscription' => $subscription,
             'following'    => $this->followingList($tree, $xref),
-            'search_url'   => route(static::class, ['tree' => $tree->name(), 'search' => '1']),
+            'search_url'   => $this->searchUrl($tree),
             'upcoming'     => $this->upcomingList($tree, $xref, $subscription),
             'horizon_days' => self::PREVIEW_HORIZON_DAYS,
             'sidebar_choice' => $this->userMayChooseSidebarMode(),
@@ -663,11 +427,11 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
         ]);
     }
 
-    /** How far the settings-page "upcoming birthdays" preview looks ahead. */
+    /** How far the settings-page "upcoming events" preview looks ahead. */
     private const PREVIEW_HORIZON_DAYS = 31;
 
     /**
-     * Build the settings-page "upcoming birthdays" preview: the same people the
+     * Build the settings-page "upcoming events" preview: the same people the
      * daily digest would mention (distance filter + followed + deceased rule),
      * but over the next month. Uses the subscriber's saved settings; falls back
      * to sensible defaults when they have not subscribed yet. Never throws — a
@@ -682,12 +446,13 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
         try {
             $calendar     = Registry::container()->get(CalendarService::class);
             $relationship = Registry::container()->get(RelationshipService::class);
-            $service      = new ReminderService($calendar, $relationship, $this->name());
+            $service      = new ReminderService($calendar, $relationship, $this->name(), fn (Tree $t): string => $this->editUrl($t));
 
-            $max_distance     = (int) ($subscription['max_distance'] ?? 0);
-            $include_deceased = (bool) ($subscription['include_deceased'] ?? false);
+            $max_distance      = (int) ($subscription['max_distance'] ?? 0);
+            $include_deceased  = (bool) ($subscription['include_deceased'] ?? false);
+            $include_marriages = (bool) ($subscription['include_marriages'] ?? false);
 
-            return $service->upcomingBirthdays($tree, $xref, $max_distance, $include_deceased, self::PREVIEW_HORIZON_DAYS);
+            return $service->upcomingEvents($tree, $xref, $max_distance, $include_deceased, $include_marriages, self::PREVIEW_HORIZON_DAYS);
         } catch (Throwable $e) {
             return [];
         }
@@ -860,11 +625,11 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
     }
 
     /**
-     * JSON autocomplete for the "follow a person" search box. Auth-gated: the
+     * JSON autocomplete for the "follow a person" search box (module action "Search", GET). Auth-gated: the
      * tree is private, so anonymous callers get an empty list. Marks people the
      * subscriber already follows so the UI can show "Following" instead of "Add".
      */
-    private function handleSearch(ServerRequestInterface $request): ResponseInterface
+    public function getSearchAction(ServerRequestInterface $request): ResponseInterface
     {
         if (!Auth::check()) {
             return response(['results' => []], StatusCodeInterface::STATUS_FORBIDDEN);
@@ -941,14 +706,14 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
     }
 
     /**
-     * Save subscription changes for the current user.
+     * Save subscription changes for the current user (module action "Edit", POST).
      */
-    private function handleSave(ServerRequestInterface $request): ResponseInterface
+    public function postEditAction(ServerRequestInterface $request): ResponseInterface
     {
         $tree = Validator::attributes($request)->tree();
         $user = Auth::user();
 
-        $back = redirect(route(static::class, ['tree' => $tree->name()]));
+        $back = redirect($this->editUrl($tree));
 
         if (!Auth::check()) {
             return $back;
@@ -983,12 +748,13 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
             return $back;
         }
 
-        $days_ahead       = (int) ($params['days_ahead'] ?? 1);
-        $max_distance     = (int) ($params['max_distance'] ?? 0);
-        $include_deceased = !empty($params['include_deceased']);
+        $days_ahead        = (int) ($params['days_ahead'] ?? 1);
+        $max_distance      = (int) ($params['max_distance'] ?? 0);
+        $include_deceased  = !empty($params['include_deceased']);
+        $include_marriages = !empty($params['include_marriages']);
 
-        // Clamp to sane ranges (max one week ahead).
-        $days_ahead   = max(1, min(7, $days_ahead));
+        // Clamp to sane ranges (0 = same day only, max one week ahead).
+        $days_ahead   = max(0, min(7, $days_ahead));
         $max_distance = max(0, min(100, $max_distance));
 
         $subscriptions = new ReminderSubscriptions();
@@ -997,14 +763,14 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
             $subscriptions->unsubscribe($xref);
         } else {
             $subscriptions->subscribe($xref);
-            $subscriptions->updatePrefs($xref, $days_ahead, $max_distance, $include_deceased);
+            $subscriptions->updatePrefs($xref, $days_ahead, $max_distance, $include_deceased, $include_marriages);
         }
 
         return $back;
     }
 
     /**
-     * Add or remove a followed birthday. Called from handleSave for the
+     * Add or remove a followed birthday. Called from postEditAction for the
      * follow/unfollow actions. The JS sends ajax=1 and expects JSON containing
      * the refreshed "following" list; a plain (no-JS) submit redirects back.
      *
@@ -1043,7 +809,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
 
                         if ($subs->find($xref) === null) {
                             $subs->subscribe($xref);
-                            $subs->updatePrefs($xref, 1, 0, false);
+                            $subs->updatePrefs($xref, 1, 0, false, false);
                         }
                     } catch (Throwable $e) {
                         // Best-effort: the follow is recorded regardless.
@@ -1061,7 +827,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
             ]);
         }
 
-        return redirect(route(static::class, ['tree' => $tree->name()]));
+        return redirect($this->editUrl($tree));
     }
 
     /**

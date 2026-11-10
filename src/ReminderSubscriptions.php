@@ -9,7 +9,7 @@ use Fisharebest\Webtrees\DB;
 require_once __DIR__ . '/ReminderSchema.php';
 
 /**
- * Data layer for the birthday-reminder subscriptions.
+ * Data layer for the event-reminder subscriptions.
  *
  * The table (mitalteli_reminders_subscriptions) is the module's own; it is
  * created on first use (see ReminderSchema) and accessed through webtrees'
@@ -99,6 +99,7 @@ class ReminderSubscriptions
                     'max_distance'     => $subscription['max_distance'],
                     'days_ahead'       => $subscription['days_ahead'],
                     'include_deceased' => $subscription['include_deceased'],
+                    'include_marriages' => $subscription['include_marriages'] ?? 0,
                 ];
             }
         }
@@ -117,7 +118,7 @@ class ReminderSubscriptions
     {
         return $this->withAccounts(
             DB::table(self::TABLE)
-                ->get(['gedid', 'max_distance', 'days_ahead', 'include_deceased'])
+                ->get(['gedid', 'max_distance', 'days_ahead', 'include_deceased', 'include_marriages'])
                 ->map(static fn (object $row): array => (array) $row)
                 ->all()
         );
@@ -132,7 +133,7 @@ class ReminderSubscriptions
     {
         $row = DB::table(self::TABLE)
             ->where('gedid', '=', $xref)
-            ->first(['gedid', 'max_distance', 'days_ahead', 'include_deceased']);
+            ->first(['gedid', 'max_distance', 'days_ahead', 'include_deceased', 'include_marriages']);
 
         return $row === null ? null : ($this->withAccounts([(array) $row])[0] ?? null);
     }
@@ -148,7 +149,7 @@ class ReminderSubscriptions
         DB::table(self::TABLE)->where('gedid', '=', $xref)->delete();
     }
 
-    public function updatePrefs(string $xref, int $days_ahead, int $max_distance, bool $include_deceased = false): void
+    public function updatePrefs(string $xref, int $days_ahead, int $max_distance, bool $include_deceased = false, bool $include_marriages = false): void
     {
         DB::table(self::TABLE)
             ->where('gedid', '=', $xref)
@@ -156,6 +157,7 @@ class ReminderSubscriptions
                 'days_ahead'       => $days_ahead,
                 'max_distance'     => $max_distance,
                 'include_deceased' => $include_deceased ? 1 : 0,
+                'include_marriages' => $include_marriages ? 1 : 0,
             ]);
     }
 }

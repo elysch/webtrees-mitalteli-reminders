@@ -8,6 +8,7 @@ use Fisharebest\Webtrees\Tree;
 
 /**
  * @var string                   $title
+ * @var RemindersModule           $module
  * @var Tree                     $tree
  * @var bool                     $linked
  * @var array<string,mixed>|null $subscription
@@ -21,12 +22,14 @@ use Fisharebest\Webtrees\Tree;
  * @var array<int,string>        $sidebar_modes
  */
 
-$action_url = route(RemindersModule::class, ['tree' => $tree->name()]);
+/** @var RemindersModule $module */
+$action_url = $module->editUrl($tree);
 
 $subscribed       = $subscription !== null;
 $days_ahead       = (int) ($subscription['days_ahead'] ?? 2);
 $max_distance     = (int) ($subscription['max_distance'] ?? 0);
 $include_deceased = (bool) ($subscription['include_deceased'] ?? false);
+$include_marriages = (bool) ($subscription['include_marriages'] ?? false);
 
 $following    = $following ?? [];
 $search_url   = $search_url ?? '';
@@ -63,13 +66,13 @@ $distance_options = [
 
 <?php if (!$linked) : ?>
     <div class="alert alert-warning">
-        <?= I18N::translate('Your account is not linked to a person in this family tree, so birthday reminders cannot be set up. Please ask an administrator to link your account.') ?>
+        <?= I18N::translate('Your account is not linked to a person in this family tree, so event reminders cannot be set up. Please ask an administrator to link your account.') ?>
     </div>
 <?php else : ?>
     <?php if ($subscribed) : ?>
-        <p class="text-success"><?= I18N::translate('You are subscribed to birthday reminders.') ?></p>
+        <p class="text-success"><?= I18N::translate('You are subscribed to event reminders.') ?></p>
     <?php else : ?>
-        <p class="text-muted"><?= I18N::translate('You are not currently subscribed to birthday reminders.') ?></p>
+        <p class="text-muted"><?= I18N::translate('You are not currently subscribed to event reminders.') ?></p>
     <?php endif ?>
 
     <form method="post" action="<?= e($action_url) ?>">
@@ -81,8 +84,8 @@ $distance_options = [
             </label>
             <div class="col-sm-9">
                 <select class="form-select" id="days_ahead" name="days_ahead">
-                    <?php for ($d = 1; $d <= 7; $d++) : ?>
-                        <option value="<?= $d ?>" <?= $d === $days_ahead ? 'selected' : '' ?>><?= $d ?></option>
+                    <?php for ($d = 0; $d <= 7; $d++) : ?>
+                        <option value="<?= $d ?>" <?= $d === $days_ahead ? 'selected' : '' ?>><?= $d === 0 ? e('0 — ' . I18N::translate('Same day')) : $d ?></option>
                     <?php endfor ?>
                 </select>
             </div>
@@ -108,7 +111,13 @@ $distance_options = [
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="include_deceased" name="include_deceased" value="1" <?= $include_deceased ? 'checked' : '' ?>>
                     <label class="form-check-label" for="include_deceased">
-                        <?= I18N::translate('Include birthdays of deceased people') ?>
+                        <?= I18N::translate('Include events of deceased people') ?>
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="include_marriages" name="include_marriages" value="1" <?= $include_marriages ? 'checked' : '' ?>>
+                    <label class="form-check-label" for="include_marriages">
+                        <?= I18N::translate('Include wedding anniversaries') ?>
                     </label>
                 </div>
             </div>
@@ -214,21 +223,21 @@ $distance_options = [
     </div>
 
     <?php
-    // --- Upcoming birthdays (next month) ----------------------------------
-    // A read-only preview of who the daily digest would mention over the next
+    // --- Upcoming events (next month) ----------------------------------
+    // A read-only preview of what the daily digest would mention over the next
     // month, using the SAME selection rules as the email (distance filter +
     // followed people + the deceased rule). Grouped by date for easy scanning.
     ?>
     <hr class="my-4">
 
     <div id="wt-reminder-upcoming">
-        <h2 class="h4"><?= e(I18N::translate('Upcoming birthdays')) ?></h2>
-        <p class="text-muted"><?= e(I18N::translate('Birthdays in the next month, based on your settings above.')) ?></p>
+        <h2 class="h4"><?= e(I18N::translate('Upcoming events')) ?></h2>
+        <p class="text-muted"><?= e(I18N::translate('Events in the next month, based on your settings above.')) ?></p>
 
         <div class="row">
             <div class="col-sm-9 offset-sm-3">
                 <?php if ($upcoming === []) : ?>
-                    <p class="text-muted mb-0"><?= e(I18N::translate('No upcoming birthdays in the next month.')) ?></p>
+                    <p class="text-muted mb-0"><?= e(I18N::translate('No upcoming events in the next month.')) ?></p>
                 <?php else : ?>
                     <ul class="list-group">
                         <?php $current_day = null; ?>
@@ -250,9 +259,13 @@ $distance_options = [
                             <?php endif ?>
                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                 <span>
-                                    🎂 <a href="<?= e($person['url']) ?>"><?= e($person['name']) ?></a>
+                                    <?= ($person['type'] ?? '') === 'MARR' ? '💍' : '🎂' ?> <a href="<?= e($person['url']) ?>"><?= e($person['name']) ?></a>
                                     <?php if (!empty($person['deceased'])) : ?>
                                         <span class="text-muted" title="<?= e(I18N::translate('Deceased')) ?>">✝</span>
+                                    <?php endif ?>
+                                    <?php if (($person['original_date'] ?? '') !== '') : ?>
+                                        <?php // Date of the original event (birth/marriage) this entry comes from: same size as the relationship line, right below the name. ?>
+                                        <br><small class="text-muted ms-4"><?= e($person['original_date']) ?></small>
                                     <?php endif ?>
                                     <?php if (($person['relationship'] ?? '') !== '') : ?>
                                         <br><small class="text-muted ms-4"><?= e($person['relationship']) ?></small>
@@ -263,7 +276,10 @@ $distance_options = [
                                         <span class="badge bg-success">&#9733; <?= e(I18N::translate('Followed')) ?></span>
                                     <?php endif ?>
                                     <?php if ($person['age'] !== null) : ?>
-                                        <small class="text-muted ms-1"><?= e((int) $person['age'] === 1 ? I18N::translate('%s year old', I18N::number((int) $person['age'])) : I18N::translate('%s years old', I18N::number((int) $person['age']))) ?></small>
+                                        <?php $is_wedding = ($person['type'] ?? '') === 'MARR'; ?>
+                                        <small class="text-muted ms-1"><?= e((int) $person['age'] === 1
+                                            ? I18N::translate($is_wedding ? '%s year married' : '%s year old', I18N::number((int) $person['age']))
+                                            : I18N::translate($is_wedding ? '%s years married' : '%s years old', I18N::number((int) $person['age']))) ?></small>
                                     <?php endif ?>
                                 </span>
                             </li>
@@ -282,6 +298,13 @@ $distance_options = [
         }
 
         var searchUrl  = root.dataset.searchUrl;
+
+        // The search URL may or may not already carry a query string (pretty URLs).
+        function searchUrlFor(q) {
+            var url = new URL(searchUrl, window.location.href);
+            url.searchParams.set('q', q);
+            return url.toString();
+        }
         var actionUrl  = root.dataset.actionUrl;
         var csrf       = root.dataset.csrf;
         var searchBox  = document.getElementById('wt-reminder-search');
@@ -409,7 +432,7 @@ $distance_options = [
                 return;
             }
             timer = setTimeout(function () {
-                fetch(searchUrl + '&q=' + encodeURIComponent(q), {
+                fetch(searchUrlFor(q), {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' },
                     credentials: 'same-origin'
                 }).then(function (r) { return r.json(); }).then(function (data) {

@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Birthday-reminders module for webtrees 2.x.
+ * Event-reminders module (birthdays and wedding anniversaries) for webtrees 2.2 and 2.3.
  */
 
 declare(strict_types=1);
