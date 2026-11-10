@@ -20,7 +20,7 @@ individual's page.
 
 This is a fork from https://github.com/jbh4x82/wt_reminders
 
-The module is listed as **⚖ Event reminders** (the ⚖ prefix, U+2696, keeps it sorted
+The module is listed as **⛮ Event reminders** (the ⛮ prefix, U+26EE, keeps it sorted
 next to the author's other modules in the module list).
 ## What it does
 
@@ -80,7 +80,7 @@ Installation & upgrading
 Module preferences (administration)
 -----------------------------------
 
-Edit them under **Control panel → Modules → ⚖ Event reminders** (the wrench icon). They are plain module settings, stored via webtrees' module preferences:
+Edit them under **Control panel → Modules → ⛮ Event reminders** (the wrench icon). They are plain module settings, stored via webtrees' module preferences:
 
 | Setting | Purpose |
 |---|---|
@@ -134,7 +134,7 @@ extension; no curl/wget needed), without ever putting a secret on a command line
 
 ### Step 1 — get the two values from the module settings
 
-1. In webtrees open **Control panel → Modules → ⚖ Event reminders** (wrench icon).
+1. In webtrees open **Control panel → Modules → ⛮ Event reminders** (wrench icon).
 2. Copy the value of the **Cron endpoint** field (in Spanish: *Endpoint del cron*).
    It is the value of `CRON_URL`. Do not build the URL by hand.
 3. Save the settings with the token field empty (or tick *Generate a new random

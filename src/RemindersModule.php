@@ -73,7 +73,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
     use ReminderCron;
 
     /** Sorts the module next to the author's other modules in the module list. */
-    private const TITLE_PREFIX = "\u{2696} ";
+    private const TITLE_PREFIX = "\u{26EE} ";
 
     // Tree used by the (guest-accessible, tree-less) cron route. Empty means
     // "use the first/only tree" — see resolveTree().
