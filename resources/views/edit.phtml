@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Fisharebest\Webtrees\I18N;
-use Mitalteli\Webtrees\Util\Reminders\RemindersModule;
+use Mitalteli\Webtrees\Module\EventReminders\RemindersModule;
 use Fisharebest\Webtrees\Tree;
 
 /**
@@ -181,6 +181,7 @@ $distance_options = [
 
         <h2 class="h4"><?= e(I18N::translate('People you follow')) ?></h2>
         <p class="text-muted"><?= e(I18N::translate('Always remind me of these birthdays, no matter how distant the relative.')) ?></p>
+        <p class="text-muted"><?= e(I18N::translate('Choose how many days ahead each person’s birthday is announced; “Use my default” follows the general Days ahead setting above.')) ?></p>
 
         <div class="row mb-3">
             <div class="col-sm-9 offset-sm-3 position-relative">
@@ -211,9 +212,17 @@ $distance_options = [
                                         <br><small class="text-muted"><?= e($person['birthday']) ?></small>
                                     <?php endif ?>
                                 </span>
-                                <button type="button" class="btn btn-sm btn-outline-danger wt-reminder-remove" data-xref="<?= e($person['xref']) ?>">
-                                    <?= e(I18N::translate('Remove')) ?>
-                                </button>
+                                <span class="d-flex align-items-center gap-2">
+                                    <select class="form-select form-select-sm wt-reminder-days" style="width: auto;" data-xref="<?= e($person['xref']) ?>" aria-label="<?= e(I18N::translate('Days ahead')) ?>">
+                                        <option value=""><?= e(I18N::translate('Use my default')) ?></option>
+                                        <?php for ($d = 0; $d <= 7; $d++) : ?>
+                                            <option value="<?= $d ?>" <?= ($person['days_ahead'] ?? null) === $d ? 'selected' : '' ?>><?= $d === 0 ? e('0 — ' . I18N::translate('Same day')) : $d ?></option>
+                                        <?php endfor ?>
+                                    </select>
+                                    <button type="button" class="btn btn-sm btn-outline-danger wt-reminder-remove" data-xref="<?= e($person['xref']) ?>">
+                                        <?= e(I18N::translate('Remove')) ?>
+                                    </button>
+                                </span>
                             </li>
                         <?php endforeach ?>
                     <?php endif ?>
@@ -315,6 +324,9 @@ $distance_options = [
             follow:    <?= json_encode(I18N::translate('Follow')) ?>,
             following: <?= json_encode(I18N::translate('Following')) ?>,
             remove:    <?= json_encode(I18N::translate('Remove')) ?>,
+            daysAhead: <?= json_encode(I18N::translate('Days ahead')) ?>,
+            useDefault: <?= json_encode(I18N::translate('Use my default')) ?>,
+            sameDay:   <?= json_encode('0 — ' . I18N::translate('Same day')) ?>,
             empty:     <?= json_encode(I18N::translate('You are not following anyone yet.')) ?>,
             none:      <?= json_encode(I18N::translate('No matches found.')) ?>
         };
@@ -353,6 +365,35 @@ $distance_options = [
             });
         }
 
+        // The "days ahead" selector of one followed person (null = general setting).
+        function daysSelect(p) {
+            var html = '<select class="form-select form-select-sm wt-reminder-days" style="width: auto;" data-xref="'
+                     + esc(p.xref) + '" aria-label="' + esc(T.daysAhead) + '">'
+                     + '<option value="">' + esc(T.useDefault) + '</option>';
+
+            for (var d = 0; d <= 7; d++) {
+                html += '<option value="' + d + '"' + (p.days_ahead === d ? ' selected' : '') + '>'
+                      + esc(d === 0 ? T.sameDay : String(d)) + '</option>';
+            }
+
+            return html + '</select>';
+        }
+
+        // Save one person's days ahead. No re-render: the select already shows the value.
+        function saveDays(xref, value) {
+            return fetch(actionUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'X-CSRF-TOKEN': csrf,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: 'action=days&target=' + encodeURIComponent(xref)
+                    + '&days=' + encodeURIComponent(value) + '&ajax=1',
+                credentials: 'same-origin'
+            }).then(function (r) { return r.json(); });
+        }
+
         function renderFollowing(list) {
             followList.innerHTML = '';
 
@@ -379,8 +420,9 @@ $distance_options = [
                 }
 
                 li.innerHTML = '<span>' + span + '</span>'
+                    + '<span class="d-flex align-items-center gap-2">' + daysSelect(p)
                     + '<button type="button" class="btn btn-sm btn-outline-danger wt-reminder-remove" data-xref="'
-                    + esc(p.xref) + '">' + esc(T.remove) + '</button>';
+                    + esc(p.xref) + '">' + esc(T.remove) + '</button></span>';
                 followList.appendChild(li);
             });
         }
@@ -454,6 +496,22 @@ $distance_options = [
                 badge.className = 'badge bg-success';
                 badge.innerHTML = '&#9733; ' + esc(T.following);
                 btn.replaceWith(badge);
+            });
+        });
+
+        // Change one person's days ahead.
+        followList.addEventListener('change', function (ev) {
+            var sel = ev.target.closest ? ev.target.closest('.wt-reminder-days') : null;
+
+            if (!sel) {
+                return;
+            }
+
+            sel.disabled = true;
+            saveDays(sel.dataset.xref, sel.value).then(function () {
+                sel.disabled = false;
+            }, function () {
+                sel.disabled = false;
             });
         });
 

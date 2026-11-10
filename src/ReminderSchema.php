@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Mitalteli\Webtrees\Util\Reminders;
+namespace Mitalteli\Webtrees\Util\EventReminders;
 
 use Fisharebest\Webtrees\DB;
 use Fisharebest\Webtrees\Log;
@@ -42,8 +42,8 @@ final class ReminderSchema
     /** Core tables whose collation we mirror, in order of preference. */
     private const REFERENCE_TABLES = ['individuals', 'user_gedcom_setting'];
 
-    private const MARKER  = 'MITALTELI_REMINDERS_SCHEMA';
-    private const VERSION = '3';
+    private const MARKER  = 'MITALTELI_EVENT_REMINDERS_SCHEMA';
+    private const VERSION = '4';
 
     private static bool $ready = false;
 
@@ -85,6 +85,8 @@ final class ReminderSchema
         // Columns added after the first release (table already exists without them).
         $needs_marriages = $schema->hasTable(self::SUBSCRIPTIONS)
             && !$schema->hasColumn(self::SUBSCRIPTIONS, 'include_marriages');
+        $needs_follow_days = $schema->hasTable(self::FOLLOWS)
+            && !$schema->hasColumn(self::FOLLOWS, 'days_ahead');
 
         foreach ([self::SUBSCRIPTIONS, self::FOLLOWS] as $table) {
             if (!$schema->hasTable($table)) {
@@ -94,7 +96,7 @@ final class ReminderSchema
             }
         }
 
-        if ($missing === [] && $misaligned === [] && !$needs_marriages) {
+        if ($missing === [] && $misaligned === [] && !$needs_marriages && !$needs_follow_days) {
             return;
         }
 
@@ -117,6 +119,12 @@ final class ReminderSchema
             if ($needs_marriages) {
                 DB::schema()->table(self::SUBSCRIPTIONS, static function (Blueprint $table): void {
                     $table->boolean('include_marriages')->default(false);
+                });
+            }
+
+            if ($needs_follow_days) {
+                DB::schema()->table(self::FOLLOWS, static function (Blueprint $table): void {
+                    $table->unsignedTinyInteger('days_ahead')->nullable();
                 });
             }
         } finally {
@@ -198,6 +206,8 @@ final class ReminderSchema
                     $table->integer('id', true);
                     $table->string('gedid', 20);
                     $table->string('target', 20);
+                    // Days ahead for this followed person; NULL = the subscriber's general setting.
+                    $table->unsignedTinyInteger('days_ahead')->nullable();
                     $table->timestamp('created')->useCurrent();
 
                     $table->unique(['gedid', 'target'], DB::prefix($name . '_follow_unique'));

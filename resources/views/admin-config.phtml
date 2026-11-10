@@ -94,6 +94,8 @@ $mode_labels = [
                     <?= I18N::translate('This token was generated just now and is displayed ONLY ONCE. Copy it now: if you lose it, generate a new one.') ?>
                 </div>
             <?php endif ?>
+            <button type="button" class="btn btn-sm btn-outline-secondary mb-2" id="cron_conf_copy"
+                    data-copied="<?= e(I18N::translate('Copied!')) ?>" data-failed="<?= e(I18N::translate('Copy failed')) ?>"><?= e(I18N::translate('Copy')) ?></button>
             <pre class="border rounded p-3 mb-2 bg-body-secondary user-select-all" id="cron_conf" aria-labelledby="cron_conf_label"><?= e($conf_text) ?></pre>
             <div class="form-text">
                 <?= I18N::translate('Save this content as the cron configuration file (see the README for its location on Linux and Windows).') ?>
@@ -188,3 +190,52 @@ $mode_labels = [
     <button type="submit" class="btn btn-primary"><?= I18N::translate('Save') ?></button>
     <a class="btn btn-secondary" href="<?= e(route(ModulesAllPage::class)) ?>"><?= I18N::translate('Cancel') ?></a>
 </form>
+
+<script>
+(function () {
+    var button = document.getElementById('cron_conf_copy');
+    var box    = document.getElementById('cron_conf');
+
+    if (!button || !box) {
+        return;
+    }
+
+    var label = button.textContent;
+
+    function report(ok) {
+        button.textContent = ok ? button.dataset.copied : button.dataset.failed;
+        window.setTimeout(function () { button.textContent = label; }, 2000);
+    }
+
+    // Fallback for non-secure contexts (plain http) where navigator.clipboard is missing.
+    function legacyCopy() {
+        var range = document.createRange();
+        var sel   = window.getSelection();
+        var ok    = false;
+
+        range.selectNodeContents(box);
+        sel.removeAllRanges();
+        sel.addRange(range);
+
+        try {
+            ok = document.execCommand('copy');
+        } catch (e) {
+            ok = false;
+        }
+
+        sel.removeAllRanges();
+
+        return ok;
+    }
+
+    button.addEventListener('click', function () {
+        var text = box.textContent;
+
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(function () { report(true); }, function () { report(legacyCopy()); });
+        } else {
+            report(legacyCopy());
+        }
+    });
+})();
+</script>

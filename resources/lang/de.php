@@ -117,4 +117,9 @@ return [
     'Following' => 'Abonniert',
     'No matches found.' => 'Keine Treffer gefunden.',
     'You will be reminded of this birthday.' => 'Du wirst an diesen Geburtstag erinnert.',
+    'Use my default' => 'Meinen Standard verwenden',
+    'Choose how many days ahead each person’s birthday is announced; “Use my default” follows the general Days ahead setting above.' => 'Wähle, wie viele Tage im Voraus der Geburtstag jeder Person angekündigt wird; „Meinen Standard verwenden“ folgt der allgemeinen Einstellung „Tage im Voraus“ oben.',
+    'Copy' => 'Kopieren',
+    'Copied!' => 'Kopiert!',
+    'Copy failed' => 'Kopieren fehlgeschlagen',
 ];

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Mitalteli\Webtrees\Util\Reminders;
+namespace Mitalteli\Webtrees\Util\EventReminders;
 
 use Fig\Http\Message\StatusCodeInterface;
 use Fisharebest\Webtrees\Module\AbstractModule;
@@ -46,8 +46,8 @@ require_once __DIR__ . '/ReminderSender.php';
 require_once __DIR__ . '/ReminderSettings.php';
 require_once __DIR__ . '/ReminderCron.php';
 
-use Mitalteli\Webtrees\Util\Reminders\ReminderSettings;
-use Mitalteli\Webtrees\Util\Reminders\ReminderRelationships;
+use Mitalteli\Webtrees\Util\EventReminders\ReminderSettings;
+use Mitalteli\Webtrees\Util\EventReminders\ReminderRelationships;
 
 /**
  * An event-reminder module (birthdays and wedding anniversaries) for webtrees.
@@ -470,7 +470,8 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
         $follows = new ReminderFollows();
         $rows    = [];
 
-        foreach ($follows->targets($xref) as $target) {
+        foreach ($follows->daysByTarget($xref) as $target => $follow_days) {
+            $target     = (string) $target;
             $individual = Registry::individualFactory()->make($target, $tree);
 
             if ($individual === null || !$individual->canShow()) {
@@ -484,6 +485,8 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
                 'birthday'   => $this->birthdayLabel($individual),
                 'days_until' => $this->daysUntilBirthday($individual),
                 'url'        => $individual->url(),
+                // Own "days ahead" of this followed person; null = the general setting.
+                'days_ahead' => $follow_days,
             ];
         }
 
@@ -731,7 +734,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
         // --- Follow / unfollow an individual birthday (AJAX from the settings
         // page). Independent of the subscribe form, so handle it first and never
         // touch the days_ahead/max_distance prefs. ----------------------------
-        if ($action === 'follow' || $action === 'unfollow') {
+        if ($action === 'follow' || $action === 'unfollow' || $action === 'days') {
             return $this->handleFollow($request, $tree, $xref, $action, $params);
         }
 
@@ -815,6 +818,12 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
                         // Best-effort: the follow is recorded regardless.
                     }
                 }
+            } elseif ($action === 'days') {
+                // '' = back to the general setting; otherwise 0 (same day) to 7.
+                $raw  = $params['days'] ?? '';
+                $days = is_string($raw) && preg_match('/^[0-7]$/', $raw) === 1 ? (int) $raw : null;
+
+                $follows->setDays($xref, $target, $days);
             } else {
                 $follows->unfollow($xref, $target);
             }

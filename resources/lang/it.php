@@ -117,4 +117,9 @@ return [
     'Following' => 'Seguito',
     'No matches found.' => 'Nessun risultato trovato.',
     'You will be reminded of this birthday.' => 'Ti ricorderemo questo compleanno.',
+    'Use my default' => 'Usa il mio valore predefinito',
+    'Choose how many days ahead each person’s birthday is announced; “Use my default” follows the general Days ahead setting above.' => 'Scegli con quanti giorni di anticipo viene annunciato il compleanno di ogni persona; “Usa il mio valore predefinito” segue l’impostazione generale dei giorni in anticipo qui sopra.',
+    'Copy' => 'Copia',
+    'Copied!' => 'Copiato!',
+    'Copy failed' => 'Copia non riuscita',
 ];

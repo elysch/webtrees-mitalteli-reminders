@@ -39,7 +39,9 @@ next to the author's other modules in the module list).
 - **Distance filter + follow specific people.** Each subscriber chooses how
   closely related someone must be to appear, and can also **follow** specific
   individuals by name — whose birthdays then always appear, regardless of the
-  distance filter. (Following specific people applies to birthdays only.)
+  distance filter. Each followed person can also have **their own "days ahead"**
+  (0 = same day, up to 7) that replaces the general one for that person; "Use my
+  default" follows the general setting. (Following applies to birthdays only.)
 - **Upcoming events list.** The member's page lists the events of the next month
   that the digest would mention. Each entry shows the person, then the **date of
   the original event** (birth or marriage date), then the relationship.
@@ -73,7 +75,7 @@ Installation & upgrading
    | Table | Purpose |
    |---|---|
    | `mitalteli_reminders_subscriptions` | one row per subscriber: `gedid` (XREF), `days_ahead`, `max_distance`, `include_deceased`, `include_marriages` |
-   | `mitalteli_reminders_follows` | followed birthdays: `(gedid, target)` |
+   | `mitalteli_reminders_follows` | followed birthdays: `(gedid, target, days_ahead)` (`days_ahead` NULL = the member's general setting) |
 
 Module preferences (administration)
 -----------------------------------
@@ -97,6 +99,7 @@ Edit them under **Control panel → Modules → ⚖ Event reminders** (the wrenc
   **A generated token is displayed exactly once**, inside the *Cron configuration
   file* box of the settings page that appears right after saving (a plain
   selectable text box, not a form field). Copy it then.
+- The box has a **Copy** button that copies its whole content to the clipboard.
 - From then on the box only shows a marker (`<<< PASTE YOUR CRON TOKEN HERE >>>`)
   where the token goes. If you lose the token, tick *Generate a new random token*
   and save; the old token stops working.

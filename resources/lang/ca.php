@@ -117,4 +117,9 @@ return [
     'Following' => 'Seguint',
     'No matches found.' => 'No s’ha trobat cap resultat.',
     'You will be reminded of this birthday.' => 'Se’t recordarà aquest aniversari.',
+    'Use my default' => 'Usa el meu valor predeterminat',
+    'Choose how many days ahead each person’s birthday is announced; “Use my default” follows the general Days ahead setting above.' => 'Tria amb quants dies d’antelació s’anuncia l’aniversari de cada persona; “Usa el meu valor predeterminat” segueix l’opció general de dies d’antelació de dalt.',
+    'Copy' => 'Copia',
+    'Copied!' => 'Copiat!',
+    'Copy failed' => 'No s’ha pogut copiar',
 ];

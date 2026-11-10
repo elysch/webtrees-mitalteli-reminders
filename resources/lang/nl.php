@@ -117,4 +117,9 @@ return [
     'Following' => 'Gevolgd',
     'No matches found.' => 'Geen resultaten gevonden.',
     'You will be reminded of this birthday.' => 'Je wordt aan deze verjaardag herinnerd.',
+    'Use my default' => 'Mijn standaard gebruiken',
+    'Choose how many days ahead each person’s birthday is announced; “Use my default” follows the general Days ahead setting above.' => 'Kies hoeveel dagen vooraf de verjaardag van elke persoon wordt aangekondigd; “Mijn standaard gebruiken” volgt de algemene instelling “Dagen vooraf” hierboven.',
+    'Copy' => 'Kopiëren',
+    'Copied!' => 'Gekopieerd!',
+    'Copy failed' => 'Kopiëren mislukt',
 ];

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Mitalteli\Webtrees\Util\Reminders;
+namespace Mitalteli\Webtrees\Util\EventReminders;
 
 use Fisharebest\Webtrees\DB;
 
@@ -44,6 +44,36 @@ class ReminderFollows
             ->map(static fn (mixed $target): string => (string) $target)
             ->values()
             ->all();
+    }
+
+    /**
+     * The followed XREFs with their own "days ahead" (null = use the subscriber's
+     * general setting), oldest follow first.
+     *
+     * @return array<string,int|null>
+     */
+    public function daysByTarget(string $gedid): array
+    {
+        $map = [];
+
+        foreach (DB::table(self::TABLE)
+            ->where('gedid', '=', $gedid)
+            ->orderBy('created')
+            ->orderBy('id')
+            ->get(['target', 'days_ahead']) as $row) {
+            $map[(string) $row->target] = $row->days_ahead === null ? null : max(0, min(7, (int) $row->days_ahead));
+        }
+
+        return $map;
+    }
+
+    /** Set (0-7) or clear (null) the days ahead of one followed person. */
+    public function setDays(string $gedid, string $target, ?int $days): void
+    {
+        DB::table(self::TABLE)
+            ->where('gedid', '=', $gedid)
+            ->where('target', '=', $target)
+            ->update(['days_ahead' => $days === null ? null : max(0, min(7, $days))]);
     }
 
     /** Follow a birthday (no-op if already followed; UNIQUE(gedid,target)). */

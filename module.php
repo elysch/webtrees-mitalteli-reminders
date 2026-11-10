@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Mitalteli\Webtrees\Util\Reminders;
+namespace Mitalteli\Webtrees\Util\EventReminders;
 
 require_once __DIR__ . '/src/RemindersModule.php';
 

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Mitalteli\Webtrees\Util\Reminders;
+namespace Mitalteli\Webtrees\Util\EventReminders;
 
 use Closure;
 use Fisharebest\Webtrees\DB;
@@ -74,9 +74,18 @@ class ReminderService
         $now      = Registry::timestampFactory()->now();
         $sections = [];
 
-        for ($d = 0; $d <= $days_ahead; $d++) {
+        // A followed person may have their own, longer window than the general one.
+        $last_day = $days_ahead;
+
+        foreach ($followed as $follow_days) {
+            if ($follow_days !== null) {
+                $last_day = max($last_day, min(7, $follow_days));
+            }
+        }
+
+        for ($d = 0; $d <= $last_day; $d++) {
             $jd     = $now->addDays($d)->julianDay();
-            $events = $this->eventsOn($tree, $subscriber, $distances, $followed, $include_deceased, $include_marriages, $jd);
+            $events = $this->eventsOn($tree, $subscriber, $distances, $followed, $include_deceased, $include_marriages, $jd, $days_ahead, $d);
 
             if ($events === []) {
                 continue;
@@ -145,7 +154,7 @@ class ReminderService
         // to the email (CalendarService anniversaries).
         for ($d = 0; $d <= $horizon_days; $d++) {
             $when   = $now->addDays($d);
-            $events = $this->eventsOn($tree, $subscriber, $distances, $followed, $include_deceased, $include_marriages, $when->julianDay());
+            $events = $this->eventsOn($tree, $subscriber, $distances, $followed, $include_deceased, $include_marriages, $when->julianDay(), null, $d);
 
             foreach ($events as $event) {
                 $years = (int) $event['fact']->anniv;
@@ -178,12 +187,12 @@ class ReminderService
      * XREFs of the individually-followed people (birthdays only). A database
      * failure must never break a digest, so it is swallowed.
      *
-     * @return array<string,int>
+     * @return array<string,int|null> xref => own days ahead (null = general setting)
      */
     private function followedTargets(string $xref): array
     {
         try {
-            return array_flip((new ReminderFollows())->targets($xref));
+            return (new ReminderFollows())->daysByTarget($xref);
         } catch (Throwable $e) {
             return [];
         }
@@ -200,7 +209,9 @@ class ReminderService
      * The subscriber's own birthday/wedding is never listed.
      *
      * @param array<string,int> $distances
-     * @param array<string,int> $followed
+     * @param array<string,int|null> $followed  followed XREF => own days ahead (null = the general setting)
+     * @param int|null               $days_ahead the subscriber's general window; null = no window filter (settings-page preview)
+     * @param int                    $day_offset how many days after today $jd is
      *
      * @return array<int,array<string,mixed>>
      */
@@ -211,7 +222,9 @@ class ReminderService
         array $followed,
         bool $include_deceased,
         bool $include_marriages,
-        int $jd
+        int $jd,
+        ?int $days_ahead,
+        int $day_offset
     ): array {
         $xref   = $subscriber->xref();
         $events = [];
@@ -232,10 +245,19 @@ class ReminderService
             }
 
             $within_distance = array_key_exists($target, $distances);
-            $is_followed     = isset($followed[$target]);
+            $is_followed     = array_key_exists($target, $followed);
 
             if (!$within_distance && !$is_followed) {
                 continue; // beyond max_distance and not individually followed
+            }
+
+            // A followed person's own "days ahead" replaces the general one.
+            if ($days_ahead !== null) {
+                $limit = $is_followed && $followed[$target] !== null ? $followed[$target] : $days_ahead;
+
+                if ($day_offset > $limit) {
+                    continue;
+                }
             }
 
             $is_dead = $record->isDead();
@@ -259,7 +281,7 @@ class ReminderService
             ];
         }
 
-        if (!$include_marriages) {
+        if (!$include_marriages || ($days_ahead !== null && $day_offset > $days_ahead)) {
             return $events;
         }
 
