@@ -89,7 +89,7 @@ trait MitalteliRemindersCron
         try {
             $xrefs = [];
 
-            foreach ((new MitalteliReminderSubscriptions())->all() as $row) {
+            foreach ((new MitalteliRemindersSubscriptions())->all() as $row) {
                 $xref = (string) ($row['gedid'] ?? '');
 
                 if (preg_match(self::REMINDER_XREF_PATTERN, $xref) === 1) {
@@ -108,7 +108,7 @@ trait MitalteliRemindersCron
     private function cronSubscriber(Validator $body, string $action, string $xref): ResponseInterface
     {
         try {
-            $row = (new MitalteliReminderSubscriptions())->find($xref);
+            $row = (new MitalteliRemindersSubscriptions())->find($xref);
 
             if ($row === null) {
                 return $this->cronLine("ERR   {$xref} — not subscribed");
@@ -146,7 +146,7 @@ trait MitalteliRemindersCron
     }
 
     /**
-     * @param array<string,mixed> $row Subscription row joined to the user (MitalteliReminderSubscriptions::find)
+     * @param array<string,mixed> $row Subscription row joined to the user (MitalteliRemindersSubscriptions::find)
      */
     private function cronAsSubscriber(Validator $body, UserInterface $recipient, array $row, string $xref, string $action): ResponseInterface
     {
@@ -186,7 +186,7 @@ trait MitalteliRemindersCron
 
         $this->applyLocale($lang);
 
-        $service = new MitalteliReminderService(
+        $service = new MitalteliRemindersService(
             Registry::container()->get(CalendarService::class),
             Registry::container()->get(RelationshipService::class),
             $this->name(),
@@ -218,7 +218,7 @@ trait MitalteliRemindersCron
         $brand   = trim((string) $this->getPreference('email_subject_prefix', ''));
         $subject = $brand !== '' ? $brand . ' ' . I18N::translate('Event reminders') : I18N::translate('Event reminders');
         $text    = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $html));
-        $from    = new MitalteliReminderSender(
+        $from    = new MitalteliRemindersSender(
             (string) $this->getPreference('email_from', ''),
             (string) $this->getPreference('email_from_name', '')
         );

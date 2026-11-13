@@ -257,7 +257,7 @@ trait MitalteliRemindersSettings
         }
 
         // Saving the settings is also the way to make the module re-verify its tables.
-        MitalteliReminderSchema::recheck();
+        MitalteliRemindersSchema::recheck();
 
         FlashMessages::addMessage(I18N::translate('The preferences for the module “%s” have been updated.', $this->title()), 'success');
 

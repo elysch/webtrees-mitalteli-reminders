@@ -424,7 +424,7 @@ class MitalteliRemindersModule extends AbstractModule implements ModuleCustomInt
             ]);
         }
 
-        $subscriptions = new MitalteliReminderSubscriptions();
+        $subscriptions = new MitalteliRemindersSubscriptions();
         $subscription  = $subscriptions->find($xref);
 
         return $this->viewResponse($this->name() . '::edit', [
@@ -464,7 +464,7 @@ class MitalteliRemindersModule extends AbstractModule implements ModuleCustomInt
         try {
             $calendar     = Registry::container()->get(CalendarService::class);
             $relationship = Registry::container()->get(RelationshipService::class);
-            $service      = new MitalteliReminderService($calendar, $relationship, $this->name(), fn (Tree $t): string => $this->editUrl($t));
+            $service      = new MitalteliRemindersService($calendar, $relationship, $this->name(), fn (Tree $t): string => $this->editUrl($t));
 
             $max_distance      = (int) ($subscription['max_distance'] ?? 0);
             $include_deceased  = (bool) ($subscription['include_deceased'] ?? false);
@@ -778,7 +778,7 @@ class MitalteliRemindersModule extends AbstractModule implements ModuleCustomInt
         $days_ahead   = max(0, min(7, $days_ahead));
         $max_distance = max(0, min(100, $max_distance));
 
-        $subscriptions = new MitalteliReminderSubscriptions();
+        $subscriptions = new MitalteliRemindersSubscriptions();
 
         if ($action === 'unsubscribe') {
             $subscriptions->unsubscribe($xref);
@@ -826,7 +826,7 @@ class MitalteliRemindersModule extends AbstractModule implements ModuleCustomInt
                     // sane defaults, but NEVER clobber an existing subscriber's
                     // saved preferences (distance / days-ahead / deceased).
                     try {
-                        $subs = new MitalteliReminderSubscriptions();
+                        $subs = new MitalteliRemindersSubscriptions();
 
                         if ($subs->find($xref) === null) {
                             $subs->subscribe($xref);
