@@ -34,7 +34,7 @@ use Throwable;
  * fail with "There is no active transaction". Closing the transaction before the
  * DDL and reopening it afterwards keeps webtrees' bookkeeping consistent.
  */
-final class ReminderSchema
+final class MitalteliRemindersSchema
 {
     public const SUBSCRIPTIONS = 'mitalteli_reminders_subscriptions';
     public const FOLLOWS       = 'mitalteli_reminders_follows';

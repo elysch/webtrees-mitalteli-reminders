@@ -45,7 +45,7 @@ use Throwable;
  * Switching users inside one process could therefore reuse another
  * subscriber's decisions. A fresh process per subscriber cannot.
  */
-trait ReminderCron
+trait MitalteliRemindersCron
 {
     private const REMINDER_XREF_PATTERN = '/^[A-Za-z0-9]{1,20}$/';
 
@@ -89,7 +89,7 @@ trait ReminderCron
         try {
             $xrefs = [];
 
-            foreach ((new ReminderSubscriptions())->all() as $row) {
+            foreach ((new MitalteliReminderSubscriptions())->all() as $row) {
                 $xref = (string) ($row['gedid'] ?? '');
 
                 if (preg_match(self::REMINDER_XREF_PATTERN, $xref) === 1) {
@@ -108,7 +108,7 @@ trait ReminderCron
     private function cronSubscriber(Validator $body, string $action, string $xref): ResponseInterface
     {
         try {
-            $row = (new ReminderSubscriptions())->find($xref);
+            $row = (new MitalteliReminderSubscriptions())->find($xref);
 
             if ($row === null) {
                 return $this->cronLine("ERR   {$xref} — not subscribed");
@@ -146,7 +146,7 @@ trait ReminderCron
     }
 
     /**
-     * @param array<string,mixed> $row Subscription row joined to the user (ReminderSubscriptions::find)
+     * @param array<string,mixed> $row Subscription row joined to the user (MitalteliReminderSubscriptions::find)
      */
     private function cronAsSubscriber(Validator $body, UserInterface $recipient, array $row, string $xref, string $action): ResponseInterface
     {
@@ -186,7 +186,7 @@ trait ReminderCron
 
         $this->applyLocale($lang);
 
-        $service = new ReminderService(
+        $service = new MitalteliReminderService(
             Registry::container()->get(CalendarService::class),
             Registry::container()->get(RelationshipService::class),
             $this->name(),
@@ -218,7 +218,7 @@ trait ReminderCron
         $brand   = trim((string) $this->getPreference('email_subject_prefix', ''));
         $subject = $brand !== '' ? $brand . ' ' . I18N::translate('Event reminders') : I18N::translate('Event reminders');
         $text    = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $html));
-        $from    = new ReminderSender(
+        $from    = new MitalteliReminderSender(
             (string) $this->getPreference('email_from', ''),
             (string) $this->getPreference('email_from_name', '')
         );

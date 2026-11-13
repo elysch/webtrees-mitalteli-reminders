@@ -22,13 +22,13 @@ use Throwable;
  * Rebuild of the legacy MeranReminders::getOutputHtml on the webtrees 2.x APIs
  * (CalendarService + RelationshipService).
  */
-class ReminderService
+class MitalteliRemindersService
 {
     public const TYPE_BIRTHDAY = 'BIRT';
     public const TYPE_MARRIAGE = 'MARR';
 
     private CalendarService $calendar;
-    private ReminderRelationships $relationships;
+    private MitalteliRemindersRelationships $relationships;
     private string $view_namespace;
 
     /** @var Closure(Tree):string Builds the URL of the member's reminder settings page. */
@@ -41,7 +41,7 @@ class ReminderService
         Closure $manage_url
     ) {
         $this->calendar       = $calendar;
-        $this->relationships  = new ReminderRelationships($relationship_service);
+        $this->relationships  = new MitalteliRemindersRelationships($relationship_service);
         $this->view_namespace = $view_namespace;
         $this->manage_url     = $manage_url;
     }
@@ -192,7 +192,7 @@ class ReminderService
     private function followedTargets(string $xref): array
     {
         try {
-            return (new ReminderFollows())->daysByTarget($xref);
+            return (new MitalteliRemindersFollows())->daysByTarget($xref);
         } catch (Throwable $e) {
             return [];
         }

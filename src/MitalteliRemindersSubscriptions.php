@@ -6,13 +6,13 @@ namespace Mitalteli\Webtrees\Util\EventReminders;
 
 use Fisharebest\Webtrees\DB;
 
-require_once __DIR__ . '/ReminderSchema.php';
+require_once __DIR__ . '/MitalteliRemindersSchema.php';
 
 /**
  * Data layer for the event-reminder subscriptions.
  *
  * The table (mitalteli_reminders_subscriptions) is the module's own; it is
- * created on first use (see ReminderSchema) and accessed through webtrees'
+ * created on first use (see MitalteliReminderSchema) and accessed through webtrees'
  * database layer, so it works with whatever database/prefix webtrees uses.
  *
  * Each row is keyed by the subscriber's own tree XREF (gedid). The webtrees
@@ -20,13 +20,13 @@ require_once __DIR__ . '/ReminderSchema.php';
  * per-tree "gedcomid" user preference (see withAccounts()), so the module is
  * self-contained (no per-site database view required).
  */
-class ReminderSubscriptions
+class MitalteliRemindersSubscriptions
 {
-    private const TABLE = ReminderSchema::SUBSCRIPTIONS;
+    private const TABLE = MitalteliReminderSchema::SUBSCRIPTIONS;
 
     public function __construct()
     {
-        ReminderSchema::ensure();
+        MitalteliReminderSchema::ensure();
     }
 
     /**

@@ -37,17 +37,18 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Throwable;
 
-require_once __DIR__ . '/ReminderSchema.php';
-require_once __DIR__ . '/ReminderSubscriptions.php';
-require_once __DIR__ . '/ReminderFollows.php';
-require_once __DIR__ . '/ReminderRelationships.php';
-require_once __DIR__ . '/ReminderService.php';
-require_once __DIR__ . '/ReminderSender.php';
-require_once __DIR__ . '/ReminderSettings.php';
-require_once __DIR__ . '/ReminderCron.php';
+require_once __DIR__ . '/MitalteliRemindersVersionCheck.php';
+require_once __DIR__ . '/MitalteliRemindersSchema.php';
+require_once __DIR__ . '/MitalteliRemindersSubscriptions.php';
+require_once __DIR__ . '/MitalteliRemindersFollows.php';
+require_once __DIR__ . '/MitalteliRemindersRelationships.php';
+require_once __DIR__ . '/MitalteliRemindersService.php';
+require_once __DIR__ . '/MitalteliRemindersSender.php';
+require_once __DIR__ . '/MitalteliRemindersSettings.php';
+require_once __DIR__ . '/MitalteliRemindersCron.php';
 
-use Mitalteli\Webtrees\Util\EventReminders\ReminderSettings;
-use Mitalteli\Webtrees\Util\EventReminders\ReminderRelationships;
+use Mitalteli\Webtrees\Util\EventReminders\MitalteliRemindersSettings;
+use Mitalteli\Webtrees\Util\EventReminders\MitalteliRemindersRelationships;
 
 /**
  * An event-reminder module (birthdays and wedding anniversaries) for webtrees.
@@ -62,22 +63,34 @@ use Mitalteli\Webtrees\Util\EventReminders\ReminderRelationships;
  * which is the part of the routing API that is stable across webtrees 2.2 and 2.3
  * (the route-registration API itself changes in 2.3).
  */
-class RemindersModule extends AbstractModule implements ModuleCustomInterface, ModuleMenuInterface, ModuleSidebarInterface, ModuleConfigInterface
+class MitalteliRemindersModule extends AbstractModule implements ModuleCustomInterface, ModuleMenuInterface, ModuleSidebarInterface, ModuleConfigInterface
 {
     use ModuleCustomTrait;
     use ModuleMenuTrait;
     use ModuleSidebarTrait;
     use ViewResponseTrait;
     use ModuleConfigTrait;
-    use ReminderSettings;
-    use ReminderCron;
+    use MitalteliRemindersSettings;
+    use MitalteliRemindersCron;
 
     /** Sorts the module next to the author's other modules in the module list. */
-    private const TITLE_PREFIX = "\u{26EE} ";
+    private const TITLE_PREFIX = "\u{26EE} "; # ⛮
+
+    public const CUSTOM_AUTHOR = 'elysch';
+    public const CUSTOM_VERSION = MitalteliRemindersVersionCheck::CUSTOM_VERSION;
+    public const GITHUB_REPO = 'webtrees-mitalteli-reminders';
+    public const AUTHOR_WEBSITE = 'https://github.com/elysch/webtrees-mitalteli-reminders/';
+    public const CUSTOM_SUPPORT_URL = self::AUTHOR_WEBSITE . 'issues';
+
+    private const MODULE_NAME = MitalteliRemindersVersionCheck::MODULE_NAME;
 
     // Tree used by the (guest-accessible, tree-less) cron route. Empty means
     // "use the first/only tree" — see resolveTree().
     private const DEFAULT_TREE = '';
+
+
+    public const minimumWebtreesVersion = MitalteliRemindersVersionCheck::MINIMUM_WEBTREES_VERSION;
+    public const maximumWebtreesVersion = MitalteliRemindersVersionCheck::MAXIMUM_WEBTREES_VERSION;
 
     /**
      * Register the view namespace. Nothing else may live here.
@@ -87,9 +100,14 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
         View::registerNamespace($this->name(), $this->resourcesFolder() . 'views/');
     }
 
+    public static function staticTitle(): string
+    {
+        return self::TITLE_PREFIX . I18N::translate(SELF::MODULE_NAME);
+    }
+
     public function title(): string
     {
-        return self::TITLE_PREFIX . I18N::translate('Event reminders');
+        return self::staticTitle();
     }
 
     public function description(): string
@@ -109,12 +127,12 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
 
     public function customModuleVersion(): string
     {
-        return '1.0.0';
+        return SELF::CUSTOM_VERSION;
     }
 
     public function customModuleSupportUrl(): string
     {
-        return 'https://github.com/elysch/webtrees-mitalteli-reminders/issues';
+        return SELF::CUSTOM_SUPPORT_URL;
     }
 
     /**
@@ -278,7 +296,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
             // Relationship of the viewed person TO the logged-in user. Resolved
             // via common ancestors first (the meaningful lineage, e.g. "maternal
             // great ×24 grandfather"), falling back to any-relationship; closest
-            // path only. See ReminderRelationships::resolveForCard.
+            // path only. See MitalteliRemindersRelationships::resolveForCard.
             $relationship     = '';
             $relationship_url = '';
 
@@ -286,7 +304,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
                 $subject = Registry::individualFactory()->make($self, $tree);
 
                 if ($subject !== null) {
-                    $resolved = (new ReminderRelationships(
+                    $resolved = (new MitalteliRemindersRelationships(
                         Registry::container()->get(RelationshipService::class)
                     ))->resolveForCard($subject, $individual);
 
@@ -315,7 +333,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
             $is_following = false;
 
             try {
-                $is_following = in_array($individual->xref(), (new ReminderFollows())->targets($self), true);
+                $is_following = in_array($individual->xref(), (new MitalteliRemindersFollows())->targets($self), true);
             } catch (Throwable $e) {
                 $is_following = false;
             }
@@ -406,7 +424,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
             ]);
         }
 
-        $subscriptions = new ReminderSubscriptions();
+        $subscriptions = new MitalteliReminderSubscriptions();
         $subscription  = $subscriptions->find($xref);
 
         return $this->viewResponse($this->name() . '::edit', [
@@ -446,7 +464,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
         try {
             $calendar     = Registry::container()->get(CalendarService::class);
             $relationship = Registry::container()->get(RelationshipService::class);
-            $service      = new ReminderService($calendar, $relationship, $this->name(), fn (Tree $t): string => $this->editUrl($t));
+            $service      = new MitalteliReminderService($calendar, $relationship, $this->name(), fn (Tree $t): string => $this->editUrl($t));
 
             $max_distance      = (int) ($subscription['max_distance'] ?? 0);
             $include_deceased  = (bool) ($subscription['include_deceased'] ?? false);
@@ -467,7 +485,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
      */
     private function followingList(Tree $tree, string $xref): array
     {
-        $follows = new ReminderFollows();
+        $follows = new MitalteliRemindersFollows();
         $rows    = [];
 
         foreach ($follows->daysByTarget($xref) as $target => $follow_days) {
@@ -682,7 +700,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
 
         $already = [];
         try {
-            $already = array_flip((new ReminderFollows())->targets($self));
+            $already = array_flip((new MitalteliRemindersFollows())->targets($self));
         } catch (Throwable $e) {
             $already = [];
         }
@@ -760,7 +778,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
         $days_ahead   = max(0, min(7, $days_ahead));
         $max_distance = max(0, min(100, $max_distance));
 
-        $subscriptions = new ReminderSubscriptions();
+        $subscriptions = new MitalteliReminderSubscriptions();
 
         if ($action === 'unsubscribe') {
             $subscriptions->unsubscribe($xref);
@@ -792,7 +810,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
         // XREFs are alphanumeric (I123, X45, …). Reject anything else, and never
         // let someone follow their own birthday.
         if ($target !== '' && $target !== $xref && preg_match('/^[A-Za-z0-9]+$/', $target) === 1) {
-            $follows = new ReminderFollows();
+            $follows = new MitalteliRemindersFollows();
 
             if ($action === 'follow') {
                 // Only follow real, visible individuals.
@@ -808,7 +826,7 @@ class RemindersModule extends AbstractModule implements ModuleCustomInterface, M
                     // sane defaults, but NEVER clobber an existing subscriber's
                     // saved preferences (distance / days-ahead / deceased).
                     try {
-                        $subs = new ReminderSubscriptions();
+                        $subs = new MitalteliReminderSubscriptions();
 
                         if ($subs->find($xref) === null) {
                             $subs->subscribe($xref);

@@ -6,7 +6,7 @@ namespace Mitalteli\Webtrees\Util\EventReminders;
 
 use Fisharebest\Webtrees\DB;
 
-require_once __DIR__ . '/ReminderSchema.php';
+require_once __DIR__ . '/MitalteliRemindersSchema.php';
 
 /**
  * Data layer for individually-followed birthdays.
@@ -18,15 +18,15 @@ require_once __DIR__ . '/ReminderSchema.php';
  * about (e.g. a 4th cousin) without lowering your distance cap for everyone.
  *
  * The table is the module's own; it is created on first use (see
- * ReminderSchema) and accessed through webtrees' database layer.
+ * MitalteliRemindersSchema) and accessed through webtrees' database layer.
  */
-class ReminderFollows
+class MitalteliRemindersFollows
 {
-    private const TABLE = ReminderSchema::FOLLOWS;
+    private const TABLE = MitalteliRemindersSchema::FOLLOWS;
 
     public function __construct()
     {
-        ReminderSchema::ensure();
+        MitalteliRemindersSchema::ensure();
     }
 
     /**

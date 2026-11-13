@@ -11,7 +11,7 @@
  * command line (visible to other users in `ps`): it lives in a private config
  * file and travels only inside the HTTP request body.
  * Each subscriber is processed in its own request, with that subscriber's own
- * privileges (see src/ReminderCron.php).
+ * privileges (see src/MitalteliRemindersCron.php).
  *
  * Config file. Default location:
  *   Linux/macOS: /etc/webtrees-reminders-cron.conf

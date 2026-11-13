@@ -19,7 +19,7 @@ use Throwable;
 /**
  * Administration page + sidebar display mode for the Event reminders module.
  *
- * Used by RemindersModule together with ModuleConfigTrait. Every setting is a
+ * Used by MitalteliRemindersModule together with ModuleConfigTrait. Every setting is a
  * plain module preference (table wt_module_setting), with the same names the
  * README documents, so existing installations keep working unchanged.
  *
@@ -32,11 +32,11 @@ use Throwable;
  *    exactly once, inside the sample cron configuration file on the first
  *    administration page that follows its generation; afterwards the sample
  *    only marks where the token goes.
- *  - The cron has no shared account any more: ReminderCron runs every digest
+ *  - The cron has no shared account any more: MitalteliRemindersCron runs every digest
  *    with the privileges of the subscriber it is built for. The legacy
  *    run_as_user_id preference is no longer read and is cleared on save.
  */
-trait ReminderSettings
+trait MitalteliRemindersSettings
 {
     private const REMINDER_MAX_RECIPIENTS = 100;
 
@@ -83,7 +83,7 @@ trait ReminderSettings
     /**
      * Choose the sidebar template for a display mode.
      *
-     * @param array<string,mixed> $vars The variables RemindersModule already computes.
+     * @param array<string,mixed> $vars The variables MitalteliRemindersModule already computes.
      * @param string              $mode One of sidebarModes(); "hidden" never gets here.
      */
     protected function renderReminderSidebar(array $vars, string $mode): string
@@ -257,7 +257,7 @@ trait ReminderSettings
         }
 
         // Saving the settings is also the way to make the module re-verify its tables.
-        ReminderSchema::recheck();
+        MitalteliReminderSchema::recheck();
 
         FlashMessages::addMessage(I18N::translate('The preferences for the module “%s” have been updated.', $this->title()), 'success');
 

@@ -14,7 +14,7 @@ use Fisharebest\Webtrees\Contracts\UserInterface;
  * name come from the module's control-panel settings (email_from /
  * email_from_name); neutral defaults apply when they are unset.
  */
-class ReminderSender implements UserInterface
+class MitalteliRemindersSender implements UserInterface
 {
     public function __construct(
         private readonly string $emailAddress = '',

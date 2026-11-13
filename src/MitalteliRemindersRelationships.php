@@ -28,7 +28,7 @@ use SplDoublyLinkedList;
  * Implemented as a single bounded 0-1 BFS from the subscriber, yielding an
  * xref => distance map (computed once per subscriber, then looked up per event).
  */
-class ReminderRelationships
+class MitalteliRemindersRelationships
 {
     private RelationshipService $relationship_service;
 
