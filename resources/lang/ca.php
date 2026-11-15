@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Event reminders module: translations (ca).
+ * ⛮ Event reminders module: translations (ca).
  * Keys are the English source strings passed to I18N::translate().
  *
  * @return array<string,string>

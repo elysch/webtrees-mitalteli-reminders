@@ -74,7 +74,7 @@ class MitalteliRemindersModule extends AbstractModule implements ModuleCustomInt
     use MitalteliRemindersCron;
 
     /** Sorts the module next to the author's other modules in the module list. */
-    private const TITLE_PREFIX = "\u{26EE} "; # ⛮
+    private const TITLE_PREFIX = MitalteliRemindersVersionCheck::TITLE_PREFIX;
 
     public const CUSTOM_AUTHOR = 'elysch';
     public const CUSTOM_VERSION = MitalteliRemindersVersionCheck::CUSTOM_VERSION;

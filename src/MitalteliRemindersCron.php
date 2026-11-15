@@ -22,7 +22,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use Throwable;
 
 /**
- * Cron endpoint of the Event reminders module: POST-only, one subscriber per
+ * Cron endpoint of the ⛮ Event reminders module: POST-only, one subscriber per
  * request, executed with that subscriber's own privileges. It is the module
  * action "Cron" of webtrees' built-in module route (the URL is shown as
  * "Cron endpoint" in the module's administration page).

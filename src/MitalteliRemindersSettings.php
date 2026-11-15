@@ -17,7 +17,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use Throwable;
 
 /**
- * Administration page + sidebar display mode for the Event reminders module.
+ * Administration page + sidebar display mode for the ⛮ Event reminders module.
  *
  * Used by MitalteliRemindersModule together with ModuleConfigTrait. Every setting is a
  * plain module preference (table wt_module_setting), with the same names the

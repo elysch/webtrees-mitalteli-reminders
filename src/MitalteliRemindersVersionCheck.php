@@ -23,6 +23,8 @@ use Fisharebest\Webtrees\Webtrees;
 
 final class MitalteliRemindersVersionCheck
 {
+    /** Sorts the module next to the author's other modules in the module list. */
+    public const TITLE_PREFIX = "\u{26EE} "; # ⛮
     public const CUSTOM_VERSION = '1.0.1';
     public const MODULE_NAME = 'Event reminders';
 
@@ -72,7 +74,7 @@ final class MitalteliRemindersVersionCheck
             $supported = self::MINIMUM_WEBTREES_VERSION . ' and above';
         }
 
-        $message = 'Version ' . self::CUSTOM_VERSION . ' of the “' . self::MODULE_NAME . '” module '
+        $message = 'Version ' . self::CUSTOM_VERSION . ' of the “' . self::TITLE_PREFIX . self::MODULE_NAME . '” module '
             . 'is not compatible with the installed webtrees version (' . $installed . '). '
             . 'Supported webtrees versions are ' . $supported . ' (see the README.md file). '
             . 'The module has not been loaded. '

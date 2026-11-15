@@ -2,7 +2,7 @@
 <?php
 
 /**
- * Daily cron client for the webtrees "Event reminders" module.
+ * Daily cron client for the webtrees "⛮ Event reminders" module.
  *
  *   webtrees-reminders-cron.php dry     builds every digest, sends NO mail (default)
  *   webtrees-reminders-cron.php send    builds and sends
